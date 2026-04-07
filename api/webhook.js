@@ -131,9 +131,10 @@ async function handleMenuButton(chatId, text, user) {
       await deleteShift(chatId);
       await sendMessage(
         chatId,
-        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n\nСпасибо за работу! 👏`,
-        mainMenu()
+        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
       );
+      user.state = "awaiting_plan_time";
+      await setUser(chatId, user);
       await notifyAdmin(
         `🔴 <b>${user.name}</b> завершил смену\n🕐 Начало: ${shift.start_time}\n🕐 Конец: ${endTime} (МСК)\n\n📊 Квал лидов за смену: <b>${qualLeads}</b>`
       );
