@@ -342,8 +342,21 @@ module.exports = async function handler(req, res) {
   const text = message.text.trim();
 
   try {
-    if (text === "/start") {
-      await handleStart(chatId);
+    if (text === "/start" || text === "/menu") {
+      const existingUser = await getUser(chatId);
+      if (existingUser && existingUser.name) {
+        // Уже авторизован — просто обновить меню
+        existingUser.state = "authorized";
+        await setUser(chatId, existingUser);
+        const shift = await getShift(chatId);
+        await sendMessage(
+          chatId,
+          `👋 С возвращением, <b>${existingUser.name}</b>!`,
+          getMenu(chatId, shift && shift.active)
+        );
+      } else {
+        await handleStart(chatId);
+      }
       return res.status(200).json({ ok: true });
     }
 
