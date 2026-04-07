@@ -1,0 +1,11 @@
+{
+  "name": "robobot-shift-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup-webhook": "node scripts/setup-webhook.js"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.28.0"
+  }
+}
