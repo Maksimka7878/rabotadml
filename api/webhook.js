@@ -1,4 +1,4 @@
-const { sendMessage, notifyAdmin, mainMenu, onShiftMenu, adminMenu, isAdmin } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, mainMenu, onShiftMenu, adminMenu } = require("../lib/telegram");
 const {
   initTables,
   getUser,
@@ -62,8 +62,13 @@ function weekStartMs() {
 }
 
 // Хелпер для выбора меню с учётом админа
+function checkAdmin(chatId) {
+  const adminId = process.env.ADMIN_CHAT_ID;
+  return adminId && String(chatId) === String(adminId).trim();
+}
+
 function getMenu(chatId, onShift) {
-  if (isAdmin(chatId)) return adminMenu();
+  if (checkAdmin(chatId)) return adminMenu();
   return onShift ? onShiftMenu() : mainMenu();
 }
 
@@ -259,7 +264,7 @@ async function handleMenuButton(chatId, text, user) {
 
     // --- Админ: статистика ---
     case "📊 Статистика за сегодня": {
-      if (!isAdmin(chatId)) break;
+      if (!checkAdmin(chatId)) break;
       const statsText = await formatStats(todayStartMs(), "за сегодня");
       const shift = await getShift(chatId);
       await sendMessage(chatId, statsText, getMenu(chatId, shift && shift.active));
@@ -267,7 +272,7 @@ async function handleMenuButton(chatId, text, user) {
     }
 
     case "📊 Статистика за неделю": {
-      if (!isAdmin(chatId)) break;
+      if (!checkAdmin(chatId)) break;
       const statsText = await formatStats(weekStartMs(), "за неделю");
       const shift = await getShift(chatId);
       await sendMessage(chatId, statsText, getMenu(chatId, shift && shift.active));
