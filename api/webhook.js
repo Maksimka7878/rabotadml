@@ -6,6 +6,8 @@ const {
   setShift,
   deleteShift,
   addPlannedShift,
+  getUpcomingShifts,
+  removePlannedShift,
 } = require("../lib/storage");
 
 function mskNow() {
@@ -168,6 +170,36 @@ async function handleMenuButton(chatId, text, user) {
   }
 }
 
+// --- Проверка и отправка напоминаний (при каждом запросе) ---
+async function checkReminders() {
+  try {
+    const now = Date.now();
+    const windowEnd = now + 20 * 60 * 1000; // 20 минут вперёд
+
+    const shifts = await getUpcomingShifts(now, windowEnd);
+
+    for (const shift of shifts) {
+      const shiftDate = new Date(shift.timestamp);
+      const timeStr = shiftDate.toLocaleString("ru-RU", {
+        timeZone: "Europe/Moscow",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      await sendMessage(
+        shift.chatId,
+        `⏰ <b>Напоминание!</b>\n\nВаша смена начинается в <b>${timeStr}</b> (МСК)\nОсталось ~15 минут. Готовьтесь! 💪`
+      );
+      await notifyAdmin(
+        `⏰ Напоминание отправлено <b>${shift.userName}</b> — смена в <b>${timeStr}</b> (МСК)`
+      );
+      await removePlannedShift(shift);
+    }
+  } catch (err) {
+    console.error("Reminder check error:", err);
+  }
+}
+
 // --- Vercel handler ---
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
@@ -176,6 +208,9 @@ module.exports = async function handler(req, res) {
 
   const update = req.body;
   const message = update && update.message;
+
+  // Проверяем напоминания при каждом входящем сообщении
+  await checkReminders();
 
   if (!message || !message.text) {
     return res.status(200).json({ ok: true });
