@@ -20,24 +20,6 @@ const {
 const QUAL_LEAD_PRICE = 400;
 const LEAD_BATCH_PRICE = 600;
 
-// Premium emoji (tg-emoji)
-const E = {
-  hi:    '<tg-emoji emoji-id="5368324170671202286">👋</tg-emoji>',
-  fire:  '<tg-emoji emoji-id="5447644880824181073">🔥</tg-emoji>',
-  check: '<tg-emoji emoji-id="5447183459602669338">✅</tg-emoji>',
-  star:  '<tg-emoji emoji-id="5440539497383087970">⭐</tg-emoji>',
-  clock: '<tg-emoji emoji-id="5447410659077661506">🕐</tg-emoji>',
-  warn:  '<tg-emoji emoji-id="5447588922505766498">⚠️</tg-emoji>',
-  red:   '<tg-emoji emoji-id="5447002378662232950">🔴</tg-emoji>',
-  green: '<tg-emoji emoji-id="5447137669928940929">🟢</tg-emoji>',
-  money: '<tg-emoji emoji-id="5443038326535759644">💰</tg-emoji>',
-  chart: '<tg-emoji emoji-id="5447410659077661506">📊</tg-emoji>',
-  pack:  '<tg-emoji emoji-id="5449683594425410616">📦</tg-emoji>',
-  bell:  '<tg-emoji emoji-id="5447410659077661506">⏰</tg-emoji>',
-  flex:  '<tg-emoji emoji-id="5447644880824181073">💪</tg-emoji>',
-  clap:  '<tg-emoji emoji-id="5443038326535759644">👏</tg-emoji>',
-};
-
 let tablesReady = false;
 
 function mskNow() {
@@ -104,7 +86,7 @@ async function handleStart(chatId) {
   await setUser(chatId, { state: "awaiting_name" });
   await sendMessage(
     chatId,
-    `${E.hi} <b>Добро пожаловать!</b>\n\nВведите ваше имя для авторизации:`
+    `👋 <b>Добро пожаловать!</b>\n\nВведите ваше имя для авторизации:`
   );
 }
 
@@ -115,10 +97,10 @@ async function handleNameInput(chatId, text, user) {
   await setUser(chatId, user);
   await sendMessage(
     chatId,
-    `${E.check} Вы авторизованы как <b>${text}</b>`,
+    `✅ Вы авторизованы как <b>${text}</b>`,
     getMenu(chatId, false)
   );
-  await notifyAdmin(`${E.hi} Новый сотрудник авторизован: <b>${text}</b>`);
+  await notifyAdmin(`👋 Новый сотрудник авторизован: <b>${text}</b>`);
 }
 
 // --- Ввод времени планируемой смены ---
@@ -152,7 +134,7 @@ async function handlePlanTimeInput(chatId, text, user) {
   const timeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   await sendMessage(
     chatId,
-    `${E.check} Смена запланирована на завтра в <b>${timeStr}</b> (МСК)\n\n${E.bell} Вам придёт напоминание за 15 минут.`,
+    `✅ Смена запланирована на завтра в <b>${timeStr}</b> (МСК)\n\n⏰ Вам придёт напоминание за 15 минут.`,
     getMenu(chatId, false)
   );
   await notifyAdmin(
@@ -168,13 +150,13 @@ async function formatStatsToday() {
   const details = await getDetailedShifts(fromMs);
 
   if (stats.length === 0 && active.length === 0) {
-    return `${E.chart} <b>Статистика за сегодня</b>\n\nНет данных.`;
+    return `📊 <b>Статистика за сегодня</b>\n\nНет данных.`;
   }
 
-  let text = `${E.chart} <b>Статистика за сегодня</b>\n`;
+  let text = `📊 <b>Статистика за сегодня</b>\n`;
 
   if (active.length > 0) {
-    text += `\n${E.green} <b>Сейчас на смене:</b>\n`;
+    text += `\n🟢 <b>Сейчас на смене:</b>\n`;
     for (const s of active) {
       text += `  • ${s.name} (с ${s.start_time}, квал: ${s.qual_leads || 0})\n`;
     }
@@ -185,8 +167,8 @@ async function formatStatsToday() {
     for (const s of details) {
       const dur = Number(s.end_ts) - Number(s.start_ts);
       text += `\n  • <b>${s.user_name}</b>\n`;
-      text += `    ${E.clock} ${s.start_time} — ${s.end_time} (${formatDuration(dur)})\n`;
-      text += `    ${E.star} Квал: ${s.qual_leads || 0}, 📨 Партий: ${s.lead_requests || 0}\n`;
+      text += `    🕐 ${s.start_time} — ${s.end_time} (${formatDuration(dur)})\n`;
+      text += `    ⭐ Квал: ${s.qual_leads || 0}, 📨 Партий: ${s.lead_requests || 0}\n`;
     }
   }
 
@@ -200,13 +182,13 @@ async function formatStatsWeek() {
   const active = await getActiveShiftsWithNames();
 
   if (stats.length === 0 && active.length === 0) {
-    return `${E.chart} <b>Статистика за неделю</b>\n\nНет данных.`;
+    return `📊 <b>Статистика за неделю</b>\n\nНет данных.`;
   }
 
-  let text = `${E.chart} <b>Статистика за неделю</b>\n`;
+  let text = `📊 <b>Статистика за неделю</b>\n`;
 
   if (active.length > 0) {
-    text += `\n${E.green} <b>Сейчас на смене:</b>\n`;
+    text += `\n🟢 <b>Сейчас на смене:</b>\n`;
     for (const s of active) {
       text += `  • ${s.name} (с ${s.start_time})\n`;
     }
@@ -226,9 +208,9 @@ async function formatStatsWeek() {
 
       text += `\n👤 <b>${s.user_name}</b>\n`;
       text += `  📅 Смен: ${s.total_shifts} (${formatDuration(workMs)})\n`;
-      text += `  ${E.star} Квал лидов: ${qual} × ${QUAL_LEAD_PRICE}₽ = ${qual * QUAL_LEAD_PRICE}₽\n`;
+      text += `  ⭐ Квал лидов: ${qual} × ${QUAL_LEAD_PRICE}₽ = ${qual * QUAL_LEAD_PRICE}₽\n`;
       text += `  📨 Партий: ${batches} × ${LEAD_BATCH_PRICE}₽ = ${batches * LEAD_BATCH_PRICE}₽\n`;
-      text += `  ${E.money} <b>Итого: ${money}₽</b>\n`;
+      text += `  💰 <b>Итого: ${money}₽</b>\n`;
 
       grandTotalQual += qual;
       grandTotalBatches += batches;
@@ -236,8 +218,8 @@ async function formatStatsWeek() {
     }
 
     text += `\n━━━━━━━━━━━━━━━\n`;
-    text += `${E.money} <b>ОБЩИЙ ИТОГ: ${grandTotalMoney}₽</b>\n`;
-    text += `${E.star} Квал лидов: ${grandTotalQual} | 📨 Партий: ${grandTotalBatches}`;
+    text += `💰 <b>ОБЩИЙ ИТОГ: ${grandTotalMoney}₽</b>\n`;
+    text += `⭐ Квал лидов: ${grandTotalQual} | 📨 Партий: ${grandTotalBatches}`;
   }
 
   return text;
@@ -257,11 +239,11 @@ async function handleMenuButton(chatId, text, user) {
       await setShift(chatId, { active: true, startTime, startTs, qualLeads: 0, leadRequests: 0 });
       await sendMessage(
         chatId,
-        `${E.green} <b>Смена начата!</b>\n\n${E.clock} <b>${startTime}</b> (МСК)\n\nХорошей работы! ${E.fire}`,
+        `🟢 <b>Смена начата!</b>\n\n🕐 <b>${startTime}</b> (МСК)\n\nХорошей работы! 🔥`,
         getMenu(chatId, true)
       );
       await notifyAdmin(
-        `${E.green} <b>${user.name}</b> вышел на смену\n${E.clock} ${startTime} (МСК)`
+        `🟢 <b>${user.name}</b> вышел на смену\n🕐 ${startTime} (МСК)`
       );
       return;
     }
@@ -283,12 +265,12 @@ async function handleMenuButton(chatId, text, user) {
       await deleteShift(chatId);
       await sendMessage(
         chatId,
-        `${E.red} <b>Смена завершена!</b>\n\n${E.clock} Начало: <b>${shift.start_time}</b>\n${E.clock} Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n${E.chart} <b>Статистика смены:</b>\n${E.star} Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! ${E.clap}\n\n${E.clock} Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
+        `🔴 <b>Смена завершена!</b>\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
       );
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
       await notifyAdmin(
-        `${E.red} <b>${user.name}</b> завершил смену\n${E.clock} ${shift.start_time} — ${endTime} (${formatDuration(duration)})\n${E.star} Квал: ${qualLeads} | 📨 Партий: ${leadRequests}`
+        `🔴 <b>${user.name}</b> завершил смену\n🕐 ${shift.start_time} — ${endTime} (${formatDuration(duration)})\n⭐ Квал: ${qualLeads} | 📨 Партий: ${leadRequests}`
       );
       return;
     }
@@ -319,11 +301,11 @@ async function handleMenuButton(chatId, text, user) {
       const newCount = (shift.qual_leads || 0) + 1;
       await sendMessage(
         chatId,
-        `${E.star} Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`,
+        `⭐ Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`,
         getMenu(chatId, true)
       );
       await notifyAdmin(
-        `${E.star}${E.star}${E.star} <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n${E.clock} ${mskNow()} (МСК)\n${E.chart} Всего за смену: ${newCount}`
+        `⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`
       );
       return;
     }
@@ -338,11 +320,11 @@ async function handleMenuButton(chatId, text, user) {
       const newCount = (shift.lead_requests || 0) + 1;
       await sendMessage(
         chatId,
-        `${E.check} Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`,
+        `✅ Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`,
         getMenu(chatId, true)
       );
       await sendMessage(process.env.ADMIN_CHAT_ID,
-        `${E.fire} <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n${E.clock} ${mskNow()} (МСК)`,
+        `🔥 <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`,
         {
           reply_markup: {
             inline_keyboard: [[
@@ -401,7 +383,7 @@ async function checkReminders() {
 
       await sendMessage(
         shift.chatId,
-        `${E.bell} <b>Напоминание!</b>\n\nВаша смена начинается в <b>${timeStr}</b> (МСК)\nОсталось ~15 минут. Готовьтесь! ${E.fire}`
+        `⏰ <b>Напоминание!</b>\n\nВаша смена начинается в <b>${timeStr}</b> (МСК)\nОсталось ~15 минут. Готовьтесь! 🔥`
       );
       await notifyAdmin(
         `⏰ Напоминание отправлено <b>${shift.userName}</b> — смена в <b>${timeStr}</b> (МСК)`
@@ -441,7 +423,7 @@ module.exports = async function handler(req, res) {
       // Отправляем менеджеру уведомление
       await sendMessage(
         targetChatId,
-        `${E.pack} <b>Вам пришла новая партия лидов!</b>\n\nХорошей работы! ${E.fire}`
+        `📦 <b>Вам пришла новая партия лидов!</b>\n\nХорошей работы! 🔥`
       );
 
       // Убираем кнопку и отвечаем админу
@@ -470,7 +452,7 @@ module.exports = async function handler(req, res) {
         const shift = await getShift(chatId);
         await sendMessage(
           chatId,
-          `${E.hi} С возвращением, <b>${existingUser.name}</b>!`,
+          `👋 С возвращением, <b>${existingUser.name}</b>!`,
           getMenu(chatId, shift && shift.active)
         );
       } else {
