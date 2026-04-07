@@ -1,4 +1,4 @@
-const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, mainMenu, onShiftMenu, adminMenu } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
 const {
   initTables,
   getUser,
@@ -351,10 +351,34 @@ async function handleMenuButton(chatId, text, user) {
       return;
     }
 
+    // --- Поддержка ---
+    case "🛠 Поддержка": {
+      await sendMessage(
+        chatId,
+        "🛠 <b>Поддержка</b>\n\nВыберите тип проблемы:",
+        supportMenu()
+      );
+      return;
+    }
+
+    case "📞 Проблема с телефонией":
+    case "💻 Проблемы с CRM":
+    case "❓ Другой вариант": {
+      user.state = "awaiting_support_text";
+      user.support_category = text;
+      await setUser(chatId, user);
+      await sendMessage(
+        chatId,
+        "✏️ Опишите вашу проблему:"
+      );
+      return;
+    }
+
     case "❌ Отмена": {
       user.state = "authorized";
       await setUser(chatId, user);
-      await sendMessage(chatId, "↩️ Действие отменено.", getMenu(chatId, false));
+      const shift = await getShift(chatId);
+      await sendMessage(chatId, "↩️ Действие отменено.", getMenu(chatId, shift && shift.active));
       return;
     }
 
@@ -431,6 +455,20 @@ module.exports = async function handler(req, res) {
       await answerCallback(cb.id, `✅ Лиды отправлены ${targetName}`);
     }
 
+    if (data && data.startsWith("support_resolved_")) {
+      const targetChatId = data.replace("support_resolved_", "");
+      const targetUser = await getUser(targetChatId);
+      const targetName = targetUser ? targetUser.name : "Сотрудник";
+
+      await sendMessage(
+        targetChatId,
+        `✅ <b>Ваша проблема решена!</b>\n\nЕсли что-то ещё — обращайтесь через кнопку «🛠 Поддержка».`
+      );
+
+      await editMessageReplyMarkup(cb.message.chat.id, cb.message.message_id);
+      await answerCallback(cb.id, `✅ ${targetName} уведомлён`);
+    }
+
     return res.status(200).json({ ok: true });
   }
 
@@ -472,6 +510,29 @@ module.exports = async function handler(req, res) {
       await handleNameInput(chatId, text, user);
     } else if (user.state === "awaiting_plan_time") {
       await handlePlanTimeInput(chatId, text, user);
+    } else if (user.state === "awaiting_support_text") {
+      // Отправка тикета в поддержку
+      const category = user.support_category || "Не указана";
+      user.state = "authorized";
+      user.support_category = null;
+      await setUser(chatId, user);
+
+      const shift = await getShift(chatId);
+      await sendMessage(
+        chatId,
+        `✅ <b>Ваша проблема отправлена в тех. поддержку!</b>\n\nВам придёт сообщение, когда проблема будет решена.`,
+        getMenu(chatId, shift && shift.active)
+      );
+      await sendMessage(process.env.ADMIN_CHAT_ID,
+        `🛠 <b>ЗАПРОС В ПОДДЕРЖКУ</b>\n\n👤 От: <b>${user.name}</b>\n📂 Категория: <b>${category}</b>\n💬 Описание: ${text}\n🕐 ${mskNow()} (МСК)`,
+        {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "✅ Проблема решена", callback_data: `support_resolved_${chatId}` }
+            ]]
+          }
+        }
+      );
     } else {
       await handleMenuButton(chatId, text, user);
     }
