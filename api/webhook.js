@@ -1,4 +1,4 @@
-const { sendMessage, notifyAdmin, mainMenu, onShiftMenu, adminMenu, adminOnShiftMenu, isAdmin } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, mainMenu, onShiftMenu, adminMenu, isAdmin } = require("../lib/telegram");
 const {
   initTables,
   getUser,
@@ -63,9 +63,7 @@ function weekStartMs() {
 
 // Хелпер для выбора меню с учётом админа
 function getMenu(chatId, onShift) {
-  if (isAdmin(chatId)) {
-    return onShift ? adminOnShiftMenu() : adminMenu();
-  }
+  if (isAdmin(chatId)) return adminMenu();
   return onShift ? onShiftMenu() : mainMenu();
 }
 
