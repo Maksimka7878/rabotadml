@@ -2,9 +2,9 @@ const { sendMessage } = require("../lib/telegram");
 const { getUpcomingShifts, removePlannedShift } = require("../lib/storage");
 
 module.exports = async function handler(req, res) {
-  // Vercel Cron автоматически подставляет CRON_SECRET в заголовок Authorization
-  const authHeader = req.headers["authorization"];
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Проверка секрета через query-параметр или заголовок
+  const secret = req.query.secret || req.headers["x-cron-secret"];
+  if (secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
