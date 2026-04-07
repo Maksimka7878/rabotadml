@@ -1,4 +1,4 @@
-const { sendMessage, notifyAdmin, mainMenu, onShiftMenu, adminMenu } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, mainMenu, onShiftMenu, adminMenu } = require("../lib/telegram");
 const {
   initTables,
   getUser,
@@ -323,8 +323,15 @@ async function handleMenuButton(chatId, text, user) {
         `✅ Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`,
         getMenu(chatId, true)
       );
-      await notifyAdmin(
-        `📨 <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`
+      await sendMessage(process.env.ADMIN_CHAT_ID,
+        `📨 <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`,
+        {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "✅ Отправить лиды", callback_data: `send_leads_${chatId}` }
+            ]]
+          }
+        }
       );
       return;
     }
@@ -400,9 +407,34 @@ module.exports = async function handler(req, res) {
   }
 
   const update = req.body;
-  const message = update && update.message;
 
   await checkReminders();
+
+  // --- Обработка inline-кнопок (callback_query) ---
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const data = cb.data;
+
+    if (data && data.startsWith("send_leads_")) {
+      const targetChatId = data.replace("send_leads_", "");
+      const targetUser = await getUser(targetChatId);
+      const targetName = targetUser ? targetUser.name : "Сотрудник";
+
+      // Отправляем менеджеру уведомление
+      await sendMessage(
+        targetChatId,
+        `📦 <b>Вам пришла новая партия лидов!</b>\n\nХорошей работы! 💪`
+      );
+
+      // Убираем кнопку и отвечаем админу
+      await editMessageReplyMarkup(cb.message.chat.id, cb.message.message_id);
+      await answerCallback(cb.id, `✅ Лиды отправлены ${targetName}`);
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  const message = update && update.message;
 
   if (!message || !message.text) {
     return res.status(200).json({ ok: true });
