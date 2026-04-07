@@ -4,7 +4,6 @@
     { "src": "api/**/*.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/webhook", "dest": "/api/webhook.js" },
-    { "src": "/api/cron", "dest": "/api/cron.js" }
+    { "src": "/api/webhook", "dest": "/api/webhook.js" }
   ]
 }

@@ -1,5 +1,6 @@
 const { sendMessage, notifyAdmin, mainMenu } = require("../lib/telegram");
 const {
+  initTables,
   getUser,
   setUser,
   getShift,
@@ -9,6 +10,8 @@ const {
   getUpcomingShifts,
   removePlannedShift,
 } = require("../lib/storage");
+
+let tablesReady = false;
 
 function mskNow() {
   return new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
@@ -120,11 +123,11 @@ async function handleMenuButton(chatId, text, user) {
       await deleteShift(chatId);
       await sendMessage(
         chatId,
-        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.startTime}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n\nСпасибо за работу! 👏`,
+        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n\nСпасибо за работу! 👏`,
         mainMenu()
       );
       await notifyAdmin(
-        `🔴 <b>${user.name}</b> завершил смену\n🕐 Начало: ${shift.startTime}\n🕐 Конец: ${endTime} (МСК)`
+        `🔴 <b>${user.name}</b> завершил смену\n🕐 Начало: ${shift.start_time}\n🕐 Конец: ${endTime} (МСК)`
       );
       return;
     }
@@ -204,6 +207,12 @@ async function checkReminders() {
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(200).json({ ok: true, info: "Bot is running" });
+  }
+
+  // Создаём таблицы при первом запросе
+  if (!tablesReady) {
+    await initTables();
+    tablesReady = true;
   }
 
   const update = req.body;

@@ -6,6 +6,6 @@
     "setup-webhook": "node scripts/setup-webhook.js"
   },
   "dependencies": {
-    "@upstash/redis": "^1.28.0"
+    "@neondatabase/serverless": "^1.0.2"
   }
 }
