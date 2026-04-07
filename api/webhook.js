@@ -7,13 +7,18 @@ const {
   setShift,
   deleteShift,
   incrementQualLeads,
+  incrementLeadRequests,
   logShift,
   getStats,
+  getDetailedShifts,
   getActiveShiftsWithNames,
   addPlannedShift,
   getUpcomingShifts,
   removePlannedShift,
 } = require("../lib/storage");
+
+const QUAL_LEAD_PRICE = 400;  // 1 квал лид = 400 руб
+const LEAD_BATCH_PRICE = 600; // 1 партия (100 лидов) = 600 руб
 
 let tablesReady = false;
 
@@ -40,7 +45,6 @@ function parseTomorrowMsk(hours, minutes) {
   return tomorrow.getTime() - MSK_OFFSET_MS;
 }
 
-// Начало сегодняшнего дня по МСК в UTC ms
 function todayStartMs() {
   const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
   const nowMsk = new Date(Date.now() + MSK_OFFSET_MS);
@@ -49,19 +53,24 @@ function todayStartMs() {
   return start.getTime() - MSK_OFFSET_MS;
 }
 
-// Начало текущей недели (понедельник) по МСК в UTC ms
 function weekStartMs() {
   const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
   const nowMsk = new Date(Date.now() + MSK_OFFSET_MS);
   const day = nowMsk.getDay();
-  const diff = day === 0 ? 6 : day - 1; // понедельник = 0
+  const diff = day === 0 ? 6 : day - 1;
   const start = new Date(nowMsk);
   start.setDate(start.getDate() - diff);
   start.setHours(0, 0, 0, 0);
   return start.getTime() - MSK_OFFSET_MS;
 }
 
-// Хелпер для выбора меню с учётом админа
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return "0ч 0м";
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  return `${hours}ч ${minutes}м`;
+}
+
 function checkAdmin(chatId) {
   const adminId = process.env.ADMIN_CHAT_ID;
   return adminId && String(chatId) === String(adminId).trim();
@@ -133,16 +142,18 @@ async function handlePlanTimeInput(chatId, text, user) {
   );
 }
 
-// Форматирование статистики
-async function formatStats(fromMs, periodName) {
+// --- Статистика за сегодня ---
+async function formatStatsToday() {
+  const fromMs = todayStartMs();
   const stats = await getStats(fromMs);
   const active = await getActiveShiftsWithNames();
+  const details = await getDetailedShifts(fromMs);
 
   if (stats.length === 0 && active.length === 0) {
-    return `📊 <b>Статистика ${periodName}</b>\n\nНет данных.`;
+    return `📊 <b>Статистика за сегодня</b>\n\nНет данных.`;
   }
 
-  let text = `📊 <b>Статистика ${periodName}</b>\n`;
+  let text = `📊 <b>Статистика за сегодня</b>\n`;
 
   if (active.length > 0) {
     text += `\n🟢 <b>Сейчас на смене:</b>\n`;
@@ -151,16 +162,64 @@ async function formatStats(fromMs, periodName) {
     }
   }
 
-  if (stats.length > 0) {
+  if (details.length > 0) {
     text += `\n📋 <b>Завершённые смены:</b>\n`;
-    let totalShifts = 0;
-    let totalQual = 0;
-    for (const s of stats) {
-      text += `  • <b>${s.user_name}</b> — смен: ${s.total_shifts}, квал лидов: ${s.total_qual_leads}\n`;
-      totalShifts += Number(s.total_shifts);
-      totalQual += Number(s.total_qual_leads);
+    for (const s of details) {
+      const dur = Number(s.end_ts) - Number(s.start_ts);
+      text += `  • <b>${s.user_name}</b>\n`;
+      text += `    ${s.start_time} — ${s.end_time} (${formatDuration(dur)})\n`;
+      text += `    ⭐ Квал: ${s.qual_leads || 0}, 📨 Партий: ${s.lead_requests || 0}\n`;
     }
-    text += `\n<b>Итого:</b> ${totalShifts} смен, ${totalQual} квал лидов`;
+  }
+
+  return text;
+}
+
+// --- Статистика за неделю (с расчётом ЗП) ---
+async function formatStatsWeek() {
+  const fromMs = weekStartMs();
+  const stats = await getStats(fromMs);
+  const active = await getActiveShiftsWithNames();
+
+  if (stats.length === 0 && active.length === 0) {
+    return `📊 <b>Статистика за неделю</b>\n\nНет данных.`;
+  }
+
+  let text = `📊 <b>Статистика за неделю</b>\n`;
+
+  if (active.length > 0) {
+    text += `\n🟢 <b>Сейчас на смене:</b>\n`;
+    for (const s of active) {
+      text += `  • ${s.name} (с ${s.start_time})\n`;
+    }
+  }
+
+  if (stats.length > 0) {
+    text += `\n📋 <b>Итоги по менеджерам:</b>\n`;
+    let grandTotalQual = 0;
+    let grandTotalBatches = 0;
+    let grandTotalMoney = 0;
+
+    for (const s of stats) {
+      const qual = Number(s.total_qual_leads);
+      const batches = Number(s.total_lead_requests);
+      const workMs = Number(s.total_work_ms);
+      const money = qual * QUAL_LEAD_PRICE + batches * LEAD_BATCH_PRICE;
+
+      text += `\n👤 <b>${s.user_name}</b>\n`;
+      text += `  📅 Смен: ${s.total_shifts} (${formatDuration(workMs)})\n`;
+      text += `  ⭐ Квал лидов: ${qual} × ${QUAL_LEAD_PRICE}₽ = ${qual * QUAL_LEAD_PRICE}₽\n`;
+      text += `  📨 Партий: ${batches} × ${LEAD_BATCH_PRICE}₽ = ${batches * LEAD_BATCH_PRICE}₽\n`;
+      text += `  💰 <b>Итого: ${money}₽</b>\n`;
+
+      grandTotalQual += qual;
+      grandTotalBatches += batches;
+      grandTotalMoney += money;
+    }
+
+    text += `\n━━━━━━━━━━━━━━━\n`;
+    text += `💰 <b>ОБЩИЙ ИТОГ: ${grandTotalMoney}₽</b>\n`;
+    text += `⭐ Квал лидов: ${grandTotalQual} | 📨 Партий: ${grandTotalBatches}`;
   }
 
   return text;
@@ -176,7 +235,8 @@ async function handleMenuButton(chatId, text, user) {
         return;
       }
       const startTime = mskNow();
-      await setShift(chatId, { active: true, startTime, qualLeads: 0 });
+      const startTs = Date.now();
+      await setShift(chatId, { active: true, startTime, startTs, qualLeads: 0, leadRequests: 0 });
       await sendMessage(
         chatId,
         `🟢 Смена начата!\n\n🕐 <b>${startTime}</b> (МСК)\n\nХорошей работы! 💪`,
@@ -195,17 +255,22 @@ async function handleMenuButton(chatId, text, user) {
         return;
       }
       const endTime = mskNow();
+      const endTs = Date.now();
       const qualLeads = shift.qual_leads || 0;
-      await logShift(chatId, user.name, shift.start_time, endTime, qualLeads);
+      const leadRequests = shift.lead_requests || 0;
+      const startTs = Number(shift.start_ts) || 0;
+      const duration = endTs - startTs;
+
+      await logShift(chatId, user.name, shift.start_time, endTime, startTs, endTs, qualLeads, leadRequests);
       await deleteShift(chatId);
       await sendMessage(
         chatId,
-        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
+        `🔴 Смена завершена!\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
       );
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
       await notifyAdmin(
-        `🔴 <b>${user.name}</b> завершил смену\n🕐 Начало: ${shift.start_time}\n🕐 Конец: ${endTime} (МСК)\n\n📊 Квал лидов за смену: <b>${qualLeads}</b>`
+        `🔴 <b>${user.name}</b> завершил смену\n🕐 ${shift.start_time} — ${endTime} (${formatDuration(duration)})\n⭐ Квал: ${qualLeads} | 📨 Партий: ${leadRequests}`
       );
       return;
     }
@@ -251,13 +316,15 @@ async function handleMenuButton(chatId, text, user) {
         await sendMessage(chatId, "⚠️ Вы сейчас не на смене.", getMenu(chatId, false));
         return;
       }
+      await incrementLeadRequests(chatId);
+      const newCount = (shift.lead_requests || 0) + 1;
       await sendMessage(
         chatId,
-        "✅ Запрос на 100 лидов отправлен руководителю!",
+        `✅ Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`,
         getMenu(chatId, true)
       );
       await notifyAdmin(
-        `📨 <b>ЗАПРОС 100 ЛИДОВ</b>\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`
+        `📨 <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`
       );
       return;
     }
@@ -265,17 +332,15 @@ async function handleMenuButton(chatId, text, user) {
     // --- Админ: статистика ---
     case "📊 Статистика за сегодня": {
       if (!checkAdmin(chatId)) break;
-      const statsText = await formatStats(todayStartMs(), "за сегодня");
-      const shift = await getShift(chatId);
-      await sendMessage(chatId, statsText, getMenu(chatId, shift && shift.active));
+      const statsText = await formatStatsToday();
+      await sendMessage(chatId, statsText, adminMenu());
       return;
     }
 
     case "📊 Статистика за неделю": {
       if (!checkAdmin(chatId)) break;
-      const statsText = await formatStats(weekStartMs(), "за неделю");
-      const shift = await getShift(chatId);
-      await sendMessage(chatId, statsText, getMenu(chatId, shift && shift.active));
+      const statsText = await formatStatsWeek();
+      await sendMessage(chatId, statsText, adminMenu());
       return;
     }
 
@@ -293,7 +358,7 @@ async function handleMenuButton(chatId, text, user) {
   }
 }
 
-// --- Проверка и отправка напоминаний (при каждом запросе) ---
+// --- Проверка и отправка напоминаний ---
 async function checkReminders() {
   try {
     const now = Date.now();
@@ -350,7 +415,6 @@ module.exports = async function handler(req, res) {
     if (text === "/start" || text === "/menu") {
       const existingUser = await getUser(chatId);
       if (existingUser && existingUser.name) {
-        // Уже авторизован — просто обновить меню
         existingUser.state = "authorized";
         await setUser(chatId, existingUser);
         const shift = await getShift(chatId);
