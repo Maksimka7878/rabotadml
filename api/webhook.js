@@ -109,6 +109,12 @@ async function handlePlanTimeInput(chatId, text, user) {
     await sendMessage(chatId, "❌ Неверное время. Введите время в формате <b>ЧЧ:ММ</b>:");
     return;
   }
+  // Разрешаем только с 08:00 до 20:00
+  const totalMinutes = hours * 60 + minutes;
+  if (totalMinutes < 8 * 60 || totalMinutes > 20 * 60) {
+    await sendMessage(chatId, "⛔ Смену можно запланировать только с <b>08:00</b> до <b>20:00</b>.\n\nВведите другое время:");
+    return;
+  }
   const plannedUtcMs = parseTomorrowMsk(hours, minutes);
   await addPlannedShift(chatId, plannedUtcMs, user.name);
   user.state = "authorized";
