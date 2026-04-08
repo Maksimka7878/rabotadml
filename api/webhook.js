@@ -19,6 +19,7 @@ const {
 
 const QUAL_LEAD_PRICE = 400;
 const LEAD_BATCH_PRICE = 600;
+const CRM_PREFIX = "https://flatcherestate.amocrm.ru/";
 
 let tablesReady = false;
 
@@ -37,11 +38,9 @@ function parseTomorrowMsk(hours, minutes) {
   const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
   const nowUtc = Date.now();
   const nowMsk = new Date(nowUtc + MSK_OFFSET_MS);
-
   const tomorrow = new Date(nowMsk);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(hours, minutes, 0, 0);
-
   return tomorrow.getTime() - MSK_OFFSET_MS;
 }
 
@@ -84,10 +83,7 @@ function getMenu(chatId, onShift) {
 // --- Обработка /start ---
 async function handleStart(chatId) {
   await setUser(chatId, { state: "awaiting_name" });
-  await sendMessage(
-    chatId,
-    `👋 <b>Добро пожаловать!</b>\n\nВведите ваше имя для авторизации:`
-  );
+  await sendMessage(chatId, "👋 <b>Добро пожаловать!</b>\n\nВведите ваше имя для авторизации:");
 }
 
 // --- Ввод имени ---
@@ -95,11 +91,7 @@ async function handleNameInput(chatId, text, user) {
   user.name = text;
   user.state = "authorized";
   await setUser(chatId, user);
-  await sendMessage(
-    chatId,
-    `✅ Вы авторизованы как <b>${text}</b>`,
-    getMenu(chatId, false)
-  );
+  await sendMessage(chatId, `✅ Вы авторизованы как <b>${text}</b>`, getMenu(chatId, false));
   await notifyAdmin(`👋 Новый сотрудник авторизован: <b>${text}</b>`);
 }
 
@@ -107,39 +99,39 @@ async function handleNameInput(chatId, text, user) {
 async function handlePlanTimeInput(chatId, text, user) {
   const match = text.match(/^(\d{1,2}):(\d{2})$/);
   if (!match) {
-    await sendMessage(
-      chatId,
-      "❌ Неверный формат. Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>):"
-    );
+    await sendMessage(chatId, "❌ Неверный формат. Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>):");
     return;
   }
-
   const hours = parseInt(match[1], 10);
   const minutes = parseInt(match[2], 10);
-
   if (hours > 23 || minutes > 59) {
-    await sendMessage(
-      chatId,
-      "❌ Неверное время. Введите время в формате <b>ЧЧ:ММ</b>:"
-    );
+    await sendMessage(chatId, "❌ Неверное время. Введите время в формате <b>ЧЧ:ММ</b>:");
     return;
   }
-
   const plannedUtcMs = parseTomorrowMsk(hours, minutes);
   await addPlannedShift(chatId, plannedUtcMs, user.name);
-
   user.state = "authorized";
   await setUser(chatId, user);
-
   const timeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  await sendMessage(
-    chatId,
-    `✅ Смена запланирована на завтра в <b>${timeStr}</b> (МСК)\n\n⏰ Вам придёт напоминание за 15 минут.`,
-    getMenu(chatId, false)
-  );
-  await notifyAdmin(
-    `📅 <b>${user.name}</b> планирует выйти на смену завтра в <b>${timeStr}</b> (МСК)`
-  );
+  await sendMessage(chatId, `✅ Смена запланирована на завтра в <b>${timeStr}</b> (МСК)\n\n⏰ Вам придёт напоминание за 15 минут.`, getMenu(chatId, false));
+  await notifyAdmin(`📅 <b>${user.name}</b> планирует выйти на смену завтра в <b>${timeStr}</b> (МСК)`);
+}
+
+// --- Ввод ссылки на квал лида ---
+async function handleQualLinkInput(chatId, text, user) {
+  if (!text.startsWith(CRM_PREFIX)) {
+    await sendMessage(chatId, `❌ Ссылка должна начинаться с <code>${CRM_PREFIX}</code>\n\nОтправьте корректную ссылку на лида из CRM:`, {
+      reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "cancel_qual" }]] }
+    });
+    return;
+  }
+  await incrementQualLeads(chatId);
+  const shift = await getShift(chatId);
+  const newCount = shift ? (shift.qual_leads || 0) : 1;
+  user.state = "authorized";
+  await setUser(chatId, user);
+  await sendMessage(chatId, `⭐ Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`, getMenu(chatId, true));
+  await notifyAdmin(`⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🔗 <a href="${text}">Ссылка на лида</a>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`);
 }
 
 // --- Статистика за сегодня ---
@@ -148,20 +140,12 @@ async function formatStatsToday() {
   const stats = await getStats(fromMs);
   const active = await getActiveShiftsWithNames();
   const details = await getDetailedShifts(fromMs);
-
-  if (stats.length === 0 && active.length === 0) {
-    return `📊 <b>Статистика за сегодня</b>\n\nНет данных.`;
-  }
-
+  if (stats.length === 0 && active.length === 0) return `📊 <b>Статистика за сегодня</b>\n\nНет данных.`;
   let text = `📊 <b>Статистика за сегодня</b>\n`;
-
   if (active.length > 0) {
     text += `\n🟢 <b>Сейчас на смене:</b>\n`;
-    for (const s of active) {
-      text += `  • ${s.name} (с ${s.start_time}, квал: ${s.qual_leads || 0})\n`;
-    }
+    for (const s of active) text += `  • ${s.name} (с ${s.start_time}, квал: ${s.qual_leads || 0})\n`;
   }
-
   if (details.length > 0) {
     text += `\n📋 <b>Завершённые смены:</b>\n`;
     for (const s of details) {
@@ -171,57 +155,41 @@ async function formatStatsToday() {
       text += `    ⭐ Квал: ${s.qual_leads || 0}, 📨 Партий: ${s.lead_requests || 0}\n`;
     }
   }
-
   return text;
 }
 
-// --- Статистика за неделю (с расчётом ЗП) ---
+// --- Статистика за неделю ---
 async function formatStatsWeek() {
   const fromMs = weekStartMs();
   const stats = await getStats(fromMs);
   const active = await getActiveShiftsWithNames();
-
-  if (stats.length === 0 && active.length === 0) {
-    return `📊 <b>Статистика за неделю</b>\n\nНет данных.`;
-  }
-
+  if (stats.length === 0 && active.length === 0) return `📊 <b>Статистика за неделю</b>\n\nНет данных.`;
   let text = `📊 <b>Статистика за неделю</b>\n`;
-
   if (active.length > 0) {
     text += `\n🟢 <b>Сейчас на смене:</b>\n`;
-    for (const s of active) {
-      text += `  • ${s.name} (с ${s.start_time})\n`;
-    }
+    for (const s of active) text += `  • ${s.name} (с ${s.start_time})\n`;
   }
-
   if (stats.length > 0) {
     text += `\n📋 <b>Итоги по менеджерам:</b>\n`;
-    let grandTotalQual = 0;
-    let grandTotalBatches = 0;
-    let grandTotalMoney = 0;
-
+    let grandTotalQual = 0, grandTotalBatches = 0, grandTotalMoney = 0;
     for (const s of stats) {
       const qual = Number(s.total_qual_leads);
       const batches = Number(s.total_lead_requests);
       const workMs = Number(s.total_work_ms);
       const money = qual * QUAL_LEAD_PRICE + batches * LEAD_BATCH_PRICE;
-
       text += `\n👤 <b>${s.user_name}</b>\n`;
       text += `  📅 Смен: ${s.total_shifts} (${formatDuration(workMs)})\n`;
       text += `  ⭐ Квал лидов: ${qual} × ${QUAL_LEAD_PRICE}₽ = ${qual * QUAL_LEAD_PRICE}₽\n`;
       text += `  📨 Партий: ${batches} × ${LEAD_BATCH_PRICE}₽ = ${batches * LEAD_BATCH_PRICE}₽\n`;
       text += `  💰 <b>Итого: ${money}₽</b>\n`;
-
       grandTotalQual += qual;
       grandTotalBatches += batches;
       grandTotalMoney += money;
     }
-
     text += `\n━━━━━━━━━━━━━━━\n`;
     text += `💰 <b>ОБЩИЙ ИТОГ: ${grandTotalMoney}₽</b>\n`;
     text += `⭐ Квал лидов: ${grandTotalQual} | 📨 Партий: ${grandTotalBatches}`;
   }
-
   return text;
 }
 
@@ -234,17 +202,15 @@ async function handleMenuButton(chatId, text, user) {
         await sendMessage(chatId, "⚠️ Вы уже на смене!", getMenu(chatId, true));
         return;
       }
-      const startTime = mskNow();
-      const startTs = Date.now();
-      await setShift(chatId, { active: true, startTime, startTs, qualLeads: 0, leadRequests: 0 });
-      await sendMessage(
-        chatId,
-        `🟢 <b>Смена начата!</b>\n\n🕐 <b>${startTime}</b> (МСК)\n\nХорошей работы! 🔥`,
-        getMenu(chatId, true)
-      );
-      await notifyAdmin(
-        `🟢 <b>${user.name}</b> вышел на смену\n🕐 ${startTime} (МСК)`
-      );
+      // Inline подтверждение (только для менеджеров)
+      await sendMessage(chatId, "🟢 <b>Вы готовы начать смену?</b>", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ Подтверждаю", callback_data: "confirm_shift_start" }],
+            [{ text: "❌ Отмена", callback_data: "cancel_shift_start" }],
+          ]
+        }
+      });
       return;
     }
 
@@ -260,34 +226,23 @@ async function handleMenuButton(chatId, text, user) {
       const leadRequests = shift.lead_requests || 0;
       const startTs = Number(shift.start_ts) || 0;
       const duration = endTs - startTs;
-
       await logShift(chatId, user.name, shift.start_time, endTime, startTs, endTs, qualLeads, leadRequests);
       await deleteShift(chatId);
-      await sendMessage(
-        chatId,
+      await sendMessage(chatId,
         `🔴 <b>Смена завершена!</b>\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
       );
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
-      await notifyAdmin(
-        `🔴 <b>${user.name}</b> завершил смену\n🕐 ${shift.start_time} — ${endTime} (${formatDuration(duration)})\n⭐ Квал: ${qualLeads} | 📨 Партий: ${leadRequests}`
-      );
+      await notifyAdmin(`🔴 <b>${user.name}</b> завершил смену\n🕐 ${shift.start_time} — ${endTime} (${formatDuration(duration)})\n⭐ Квал: ${qualLeads} | 📨 Партий: ${leadRequests}`);
       return;
     }
 
     case "📅 Запланировать смену": {
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
-      await sendMessage(
-        chatId,
-        "🕐 Введите время выхода на завтрашнюю смену в формате <b>ЧЧ:ММ</b>\n\nНапример: <code>09:00</code>",
-        {
-          reply_markup: {
-            keyboard: [[{ text: "❌ Отмена" }]],
-            resize_keyboard: true,
-          },
-        }
-      );
+      await sendMessage(chatId, "🕐 Введите время выхода на завтрашнюю смену в формате <b>ЧЧ:ММ</b>\n\nНапример: <code>09:00</code>", {
+        reply_markup: { keyboard: [[{ text: "❌ Отмена" }]], resize_keyboard: true }
+      });
       return;
     }
 
@@ -297,16 +252,11 @@ async function handleMenuButton(chatId, text, user) {
         await sendMessage(chatId, "⚠️ Вы сейчас не на смене.", getMenu(chatId, false));
         return;
       }
-      await incrementQualLeads(chatId);
-      const newCount = (shift.qual_leads || 0) + 1;
-      await sendMessage(
-        chatId,
-        `⭐ Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`,
-        getMenu(chatId, true)
-      );
-      await notifyAdmin(
-        `⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`
-      );
+      user.state = "awaiting_qual_link";
+      await setUser(chatId, user);
+      await sendMessage(chatId, "🔗 Отправьте ссылку на лида из CRM:\n\n<i>Ссылка должна начинаться с</i> <code>flatcherestate.amocrm.ru</code>", {
+        reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "cancel_qual" }]] }
+      });
       return;
     }
 
@@ -318,25 +268,14 @@ async function handleMenuButton(chatId, text, user) {
       }
       await incrementLeadRequests(chatId);
       const newCount = (shift.lead_requests || 0) + 1;
-      await sendMessage(
-        chatId,
-        `✅ Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`,
-        getMenu(chatId, true)
-      );
+      await sendMessage(chatId, `✅ Запрос на партию лидов отправлен! (партий за смену: <b>${newCount}</b>)`, getMenu(chatId, true));
       await sendMessage(process.env.ADMIN_CHAT_ID,
         `🔥 <b>ЗАПРОС 100 ЛИДОВ</b> (партия #${newCount})\n\nОт сотрудника: <b>${user.name}</b>\n🕐 ${mskNow()} (МСК)`,
-        {
-          reply_markup: {
-            inline_keyboard: [[
-              { text: "✅ Отправить лиды", callback_data: `send_leads_${chatId}` }
-            ]]
-          }
-        }
+        { reply_markup: { inline_keyboard: [[{ text: "✅ Отправить лиды", callback_data: `send_leads_${chatId}` }]] } }
       );
       return;
     }
 
-    // --- Админ: статистика ---
     case "📊 Статистика за сегодня": {
       if (!checkAdmin(chatId)) break;
       const statsText = await formatStatsToday();
@@ -351,13 +290,8 @@ async function handleMenuButton(chatId, text, user) {
       return;
     }
 
-    // --- Поддержка ---
     case "🛠 Поддержка": {
-      await sendMessage(
-        chatId,
-        "🛠 <b>Поддержка</b>\n\nВыберите тип проблемы:",
-        supportMenu()
-      );
+      await sendMessage(chatId, "🛠 <b>Поддержка</b>\n\nВыберите тип проблемы:", supportMenu());
       return;
     }
 
@@ -367,10 +301,7 @@ async function handleMenuButton(chatId, text, user) {
       user.state = "awaiting_support_text";
       user.support_category = text;
       await setUser(chatId, user);
-      await sendMessage(
-        chatId,
-        "✏️ Опишите вашу проблему:"
-      );
+      await sendMessage(chatId, "✏️ Опишите вашу проблему:");
       return;
     }
 
@@ -394,24 +325,12 @@ async function checkReminders() {
   try {
     const now = Date.now();
     const windowEnd = now + 20 * 60 * 1000;
-
     const shifts = await getUpcomingShifts(now, windowEnd);
-
     for (const shift of shifts) {
       const shiftDate = new Date(shift.timestamp);
-      const timeStr = shiftDate.toLocaleString("ru-RU", {
-        timeZone: "Europe/Moscow",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      await sendMessage(
-        shift.chatId,
-        `⏰ <b>Напоминание!</b>\n\nВаша смена начинается в <b>${timeStr}</b> (МСК)\nОсталось ~15 минут. Готовьтесь! 🔥`
-      );
-      await notifyAdmin(
-        `⏰ Напоминание отправлено <b>${shift.userName}</b> — смена в <b>${timeStr}</b> (МСК)`
-      );
+      const timeStr = shiftDate.toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
+      await sendMessage(shift.chatId, `⏰ <b>Напоминание!</b>\n\nВаша смена начинается в <b>${timeStr}</b> (МСК)\nОсталось ~15 минут. Готовьтесь! 🔥`);
+      await notifyAdmin(`⏰ Напоминание отправлено <b>${shift.userName}</b> — смена в <b>${timeStr}</b> (МСК)`);
       await removePlannedShift(shift);
     }
   } catch (err) {
@@ -438,35 +357,72 @@ module.exports = async function handler(req, res) {
   if (update.callback_query) {
     const cb = update.callback_query;
     const data = cb.data;
+    const cbChatId = cb.message.chat.id;
 
-    if (data && data.startsWith("send_leads_")) {
-      const targetChatId = data.replace("send_leads_", "");
-      const targetUser = await getUser(targetChatId);
-      const targetName = targetUser ? targetUser.name : "Сотрудник";
+    try {
+      // Подтверждение начала смены
+      if (data === "confirm_shift_start") {
+        const user = await getUser(cbChatId);
+        const existing = await getShift(cbChatId);
+        if (existing && existing.active) {
+          await answerCallback(cb.id, "⚠️ Вы уже на смене!");
+          await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+          return res.status(200).json({ ok: true });
+        }
+        const startTime = mskNow();
+        const startTs = Date.now();
+        await setShift(cbChatId, { active: true, startTime, startTs, qualLeads: 0, leadRequests: 0 });
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, `🟢 <b>Смена начата!</b>\n\n🕐 <b>${startTime}</b> (МСК)\n\nХорошей работы! 🔥`, getMenu(cbChatId, true));
+        await notifyAdmin(`🟢 <b>${user.name}</b> вышел на смену\n🕐 ${startTime} (МСК)`);
+        await answerCallback(cb.id, "✅ Смена начата!");
+        return res.status(200).json({ ok: true });
+      }
 
-      // Отправляем менеджеру уведомление
-      await sendMessage(
-        targetChatId,
-        `📦 <b>Вам пришла новая партия лидов!</b>\n\nХорошей работы! 🔥`
-      );
+      // Отмена начала смены
+      if (data === "cancel_shift_start") {
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "↩️ Выход на смену отменён.", getMenu(cbChatId, false));
+        await answerCallback(cb.id, "Отменено");
+        return res.status(200).json({ ok: true });
+      }
 
-      // Убираем кнопку и отвечаем админу
-      await editMessageReplyMarkup(cb.message.chat.id, cb.message.message_id);
-      await answerCallback(cb.id, `✅ Лиды отправлены ${targetName}`);
-    }
+      // Отмена квал лида
+      if (data === "cancel_qual") {
+        const user = await getUser(cbChatId);
+        if (user) {
+          user.state = "authorized";
+          await setUser(cbChatId, user);
+        }
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "↩️ Квал лид отменён.", getMenu(cbChatId, true));
+        await answerCallback(cb.id, "Отменено");
+        return res.status(200).json({ ok: true });
+      }
 
-    if (data && data.startsWith("support_resolved_")) {
-      const targetChatId = data.replace("support_resolved_", "");
-      const targetUser = await getUser(targetChatId);
-      const targetName = targetUser ? targetUser.name : "Сотрудник";
+      // Отправить лиды менеджеру
+      if (data && data.startsWith("send_leads_")) {
+        const targetChatId = data.replace("send_leads_", "");
+        const targetUser = await getUser(targetChatId);
+        const targetName = targetUser ? targetUser.name : "Сотрудник";
+        await sendMessage(targetChatId, `📦 <b>Вам пришла новая партия лидов!</b>\n\nХорошей работы! 🔥`);
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await answerCallback(cb.id, `✅ Лиды отправлены ${targetName}`);
+        return res.status(200).json({ ok: true });
+      }
 
-      await sendMessage(
-        targetChatId,
-        `✅ <b>Ваша проблема решена!</b>\n\nЕсли что-то ещё — обращайтесь через кнопку «🛠 Поддержка».`
-      );
-
-      await editMessageReplyMarkup(cb.message.chat.id, cb.message.message_id);
-      await answerCallback(cb.id, `✅ ${targetName} уведомлён`);
+      // Проблема решена
+      if (data && data.startsWith("support_resolved_")) {
+        const targetChatId = data.replace("support_resolved_", "");
+        const targetUser = await getUser(targetChatId);
+        const targetName = targetUser ? targetUser.name : "Сотрудник";
+        await sendMessage(targetChatId, `✅ <b>Ваша проблема решена!</b>\n\nЕсли что-то ещё — обращайтесь через кнопку «🛠 Поддержка».`);
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await answerCallback(cb.id, `✅ ${targetName} уведомлён`);
+        return res.status(200).json({ ok: true });
+      }
+    } catch (err) {
+      console.error("Callback error:", err);
     }
 
     return res.status(200).json({ ok: true });
@@ -488,11 +444,7 @@ module.exports = async function handler(req, res) {
         existingUser.state = "authorized";
         await setUser(chatId, existingUser);
         const shift = await getShift(chatId);
-        await sendMessage(
-          chatId,
-          `👋 С возвращением, <b>${existingUser.name}</b>!`,
-          getMenu(chatId, shift && shift.active)
-        );
+        await sendMessage(chatId, `👋 С возвращением, <b>${existingUser.name}</b>!`, getMenu(chatId, shift && shift.active));
       } else {
         await handleStart(chatId);
       }
@@ -510,37 +462,25 @@ module.exports = async function handler(req, res) {
       await handleNameInput(chatId, text, user);
     } else if (user.state === "awaiting_plan_time") {
       await handlePlanTimeInput(chatId, text, user);
+    } else if (user.state === "awaiting_qual_link") {
+      await handleQualLinkInput(chatId, text, user);
     } else if (user.state === "awaiting_support_text") {
-      // Отправка тикета в поддержку
       const category = user.support_category || "Не указана";
       user.state = "authorized";
       user.support_category = null;
       await setUser(chatId, user);
-
       const shift = await getShift(chatId);
-      await sendMessage(
-        chatId,
-        `✅ <b>Ваша проблема отправлена в тех. поддержку!</b>\n\nВам придёт сообщение, когда проблема будет решена.`,
-        getMenu(chatId, shift && shift.active)
-      );
+      await sendMessage(chatId, `✅ <b>Ваша проблема отправлена в тех. поддержку!</b>\n\nВам придёт сообщение, когда проблема будет решена.`, getMenu(chatId, shift && shift.active));
       await sendMessage(process.env.ADMIN_CHAT_ID,
         `🛠 <b>ЗАПРОС В ПОДДЕРЖКУ</b>\n\n👤 От: <b>${user.name}</b>\n📂 Категория: <b>${category}</b>\n💬 Описание: ${text}\n🕐 ${mskNow()} (МСК)`,
-        {
-          reply_markup: {
-            inline_keyboard: [[
-              { text: "✅ Проблема решена", callback_data: `support_resolved_${chatId}` }
-            ]]
-          }
-        }
+        { reply_markup: { inline_keyboard: [[{ text: "✅ Проблема решена", callback_data: `support_resolved_${chatId}` }]] } }
       );
     } else {
       await handleMenuButton(chatId, text, user);
     }
   } catch (err) {
     console.error("Webhook error:", err);
-    await sendMessage(chatId, "❌ Произошла ошибка. Попробуйте позже.").catch(
-      () => {}
-    );
+    await sendMessage(chatId, "❌ Произошла ошибка. Попробуйте позже.").catch(() => {});
   }
 
   return res.status(200).json({ ok: true });
