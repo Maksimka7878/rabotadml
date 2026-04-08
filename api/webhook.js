@@ -367,8 +367,6 @@ module.exports = async function handler(req, res) {
 
   const update = req.body;
 
-  await checkReminders();
-
   // --- Обработка inline-кнопок (callback_query) ---
   if (update.callback_query) {
     const cb = update.callback_query;
