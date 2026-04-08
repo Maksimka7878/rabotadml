@@ -121,7 +121,7 @@ async function handlePlanTimeInput(chatId, text, user) {
 // --- Ввод ссылки на квал лида ---
 async function handleQualLinkInput(chatId, text, user) {
   if (!text.startsWith(CRM_PREFIX)) {
-    await sendMessage(chatId, `❌ Ссылка должна начинаться с <code>${CRM_PREFIX}</code>\n\nОтправьте корректную ссылку на лида из CRM:`, {
+    await sendMessage(chatId, `❌ Неверная ссылка. Отправьте корректную ссылку на лида из CRM:`, {
       reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "cancel_qual" }]] }
     });
     return;
@@ -255,7 +255,7 @@ async function handleMenuButton(chatId, text, user) {
       }
       user.state = "awaiting_qual_link";
       await setUser(chatId, user);
-      await sendMessage(chatId, "🔗 Отправьте ссылку на лида из CRM:\n\n<i>Ссылка должна начинаться с</i> <code>flatcherestate.amocrm.ru</code>", {
+      await sendMessage(chatId, "🔗 Отправьте ссылку на лида из CRM:", {
         reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "cancel_qual" }]] }
       });
       return;
