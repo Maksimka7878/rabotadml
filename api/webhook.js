@@ -45,6 +45,15 @@ function parseTomorrowMsk(hours, minutes) {
   return tomorrow.getTime() - MSK_OFFSET_MS;
 }
 
+// Парсинг конкретной даты ДД.ММ с заданным временем (МСК)
+function parseSpecificDateMsk(day, month, hours, minutes) {
+  const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
+  const nowMsk = new Date(Date.now() + MSK_OFFSET_MS);
+  const year = nowMsk.getFullYear();
+  const date = new Date(Date.UTC(year, month - 1, day, hours - 3, minutes, 0, 0));
+  return date.getTime();
+}
+
 function todayStartMs() {
   const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
   const nowMsk = new Date(Date.now() + MSK_OFFSET_MS);
@@ -115,13 +124,48 @@ async function handlePlanTimeInput(chatId, text, user) {
     await sendMessage(chatId, "⛔ Смену можно запланировать только с <b>08:00</b> до <b>20:00</b>.\n\nВведите другое время:");
     return;
   }
-  const plannedUtcMs = parseTomorrowMsk(hours, minutes);
+
+  let plannedUtcMs;
+  let dateLabel;
+
+  // Если выбрана конкретная дата — используем её, иначе завтра
+  if (user.plan_day && user.plan_month) {
+    plannedUtcMs = parseSpecificDateMsk(user.plan_day, user.plan_month, hours, minutes);
+    dateLabel = `${String(user.plan_day).padStart(2, "0")}.${String(user.plan_month).padStart(2, "0")}`;
+  } else {
+    plannedUtcMs = parseTomorrowMsk(hours, minutes);
+    dateLabel = "завтра";
+  }
+
   await addPlannedShift(chatId, plannedUtcMs, user.name);
   user.state = "authorized";
+  delete user.plan_day;
+  delete user.plan_month;
   await setUser(chatId, user);
   const timeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  await sendMessage(chatId, `✅ Смена запланирована на завтра в <b>${timeStr}</b> (МСК)\n\n⏰ Вам придёт напоминание за 15 минут.`, getMenu(chatId, false));
-  await notifyAdmin(`📅 <b>${user.name}</b> планирует выйти на смену завтра в <b>${timeStr}</b> (МСК)`);
+  await sendMessage(chatId, `✅ Смена запланирована на <b>${dateLabel}</b> в <b>${timeStr}</b> (МСК)\n\n⏰ Вам придёт напоминание за 15 минут.`, getMenu(chatId, false));
+  await notifyAdmin(`📅 <b>${user.name}</b> планирует выйти на смену <b>${dateLabel}</b> в <b>${timeStr}</b> (МСК)`);
+}
+
+// --- Ввод даты для планируемой смены (ДД.ММ) ---
+async function handlePlanDateInput(chatId, text, user) {
+  const match = text.match(/^(\d{1,2})\.(\d{1,2})$/);
+  if (!match) {
+    await sendMessage(chatId, "❌ Неверный формат. Введите дату в формате <b>ДД.ММ</b> (например, <code>15.04</code>):");
+    return;
+  }
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  if (day < 1 || day > 31 || month < 1 || month > 12) {
+    await sendMessage(chatId, "❌ Неверная дата. Введите дату в формате <b>ДД.ММ</b>:");
+    return;
+  }
+  user.plan_day = day;
+  user.plan_month = month;
+  user.state = "awaiting_plan_time";
+  await setUser(chatId, user);
+  const dateLabel = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}`;
+  await sendMessage(chatId, `📅 Дата выбрана: <b>${dateLabel}</b>\n\n🕐 Теперь введите время выхода в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>):`);
 }
 
 // --- Ввод ссылки на квал лида ---
@@ -236,7 +280,8 @@ async function handleMenuButton(chatId, text, user) {
       await logShift(chatId, user.name, shift.start_time, endTime, startTs, endTs, qualLeads, leadRequests);
       await deleteShift(chatId);
       await sendMessage(chatId,
-        `🔴 <b>Смена завершена!</b>\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти завтра? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`
+        `🔴 <b>Смена завершена!</b>\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти <b>завтра</b>? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`,
+        { reply_markup: { inline_keyboard: [[{ text: "📅 Сменить день выхода", callback_data: "change_plan_day" }]] } }
       );
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
@@ -474,6 +519,21 @@ module.exports = async function handler(req, res) {
         await answerCallback(cb.id, "Отменено");
         return res.status(200).json({ ok: true });
       }
+
+      // Сменить день выхода на смену
+      if (data === "change_plan_day") {
+        const user = await getUser(cbChatId);
+        if (user) {
+          user.state = "awaiting_plan_date";
+          delete user.plan_day;
+          delete user.plan_month;
+          await setUser(cbChatId, user);
+        }
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "📅 Введите дату выхода в формате <b>ДД.ММ</b>\n\nНапример: <code>15.04</code>");
+        await answerCallback(cb.id, "Введите дату");
+        return res.status(200).json({ ok: true });
+      }
     } catch (err) {
       console.error("Callback error:", err);
     }
@@ -513,6 +573,8 @@ module.exports = async function handler(req, res) {
 
     if (user.state === "awaiting_name") {
       await handleNameInput(chatId, text, user);
+    } else if (user.state === "awaiting_plan_date") {
+      await handlePlanDateInput(chatId, text, user);
     } else if (user.state === "awaiting_plan_time") {
       await handlePlanTimeInput(chatId, text, user);
     } else if (user.state === "awaiting_qual_link") {
