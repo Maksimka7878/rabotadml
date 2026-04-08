@@ -3,6 +3,7 @@ const {
   initTables,
   getUser,
   setUser,
+  getAllUsers,
   getShift,
   setShift,
   deleteShift,
@@ -92,7 +93,7 @@ async function handleNameInput(chatId, text, user) {
   user.state = "authorized";
   await setUser(chatId, user);
   await sendMessage(chatId, `✅ Вы авторизованы как <b>${text}</b>`, getMenu(chatId, false));
-  await notifyAdmin(`👋 Новый сотрудник авторизован: <b>${text}</b>`);
+  await notifyAdmin(`👋 Новый сотрудник авторизован: <b>${text}</b>\n🆔 User ID: <code>${chatId}</code>`);
 }
 
 // --- Ввод времени планируемой смены ---
@@ -290,6 +291,21 @@ async function handleMenuButton(chatId, text, user) {
       return;
     }
 
+    case "💬 Написать менеджеру": {
+      if (!checkAdmin(chatId)) break;
+      const allUsers = await getAllUsers();
+      const managers = allUsers.filter(u => String(u.chat_id) !== String(chatId) && u.name);
+      if (managers.length === 0) {
+        await sendMessage(chatId, "👥 Нет зарегистрированных менеджеров.", adminMenu());
+        return;
+      }
+      const buttons = managers.map(u => [{ text: `👤 ${u.name}`, callback_data: `dm_select_${u.chat_id}` }]);
+      await sendMessage(chatId, "👥 <b>Выберите менеджера для отправки личного сообщения:</b>", {
+        reply_markup: { inline_keyboard: buttons }
+      });
+      return;
+    }
+
     case "🛠 Поддержка": {
       await sendMessage(chatId, "🛠 <b>Поддержка</b>\n\nВыберите тип проблемы:", supportMenu());
       return;
@@ -421,6 +437,39 @@ module.exports = async function handler(req, res) {
         await answerCallback(cb.id, `✅ ${targetName} уведомлён`);
         return res.status(200).json({ ok: true });
       }
+
+      // Выбор менеджера для личного сообщения (только для администратора)
+      if (data && data.startsWith("dm_select_") && checkAdmin(cbChatId)) {
+        const targetChatId = data.replace("dm_select_", "");
+        const targetUser = await getUser(targetChatId);
+        const targetName = targetUser ? targetUser.name : "Менеджер";
+        const admin = await getUser(cbChatId);
+        admin.state = "awaiting_dm_text";
+        admin.dm_target_id = targetChatId;
+        admin.dm_target_name = targetName;
+        await setUser(cbChatId, admin);
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, `✏️ Введите сообщение для <b>${targetName}</b>:\n\n<i>(отправьте текст — он придёт менеджеру лично)</i>`, {
+          reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "dm_cancel" }]] }
+        });
+        await answerCallback(cb.id, `Выбран: ${targetName}`);
+        return res.status(200).json({ ok: true });
+      }
+
+      // Отмена отправки личного сообщения
+      if (data === "dm_cancel" && checkAdmin(cbChatId)) {
+        const admin = await getUser(cbChatId);
+        if (admin) {
+          admin.state = "authorized";
+          delete admin.dm_target_id;
+          delete admin.dm_target_name;
+          await setUser(cbChatId, admin);
+        }
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "↩️ Отправка сообщения отменена.", adminMenu());
+        await answerCallback(cb.id, "Отменено");
+        return res.status(200).json({ ok: true });
+      }
     } catch (err) {
       console.error("Callback error:", err);
     }
@@ -464,6 +513,16 @@ module.exports = async function handler(req, res) {
       await handlePlanTimeInput(chatId, text, user);
     } else if (user.state === "awaiting_qual_link") {
       await handleQualLinkInput(chatId, text, user);
+    } else if (user.state === "awaiting_dm_text" && checkAdmin(chatId)) {
+      // Отправка личного сообщения менеджеру от администратора
+      const targetId = user.dm_target_id;
+      const targetName = user.dm_target_name || "Менеджер";
+      user.state = "authorized";
+      delete user.dm_target_id;
+      delete user.dm_target_name;
+      await setUser(chatId, user);
+      await sendMessage(targetId, `📩 <b>Сообщение от администратора:</b>\n\n${text}`);
+      await sendMessage(chatId, `✅ Сообщение отправлено менеджеру <b>${targetName}</b>!`, adminMenu());
     } else if (user.state === "awaiting_support_text") {
       const category = user.support_category || "Не указана";
       user.state = "authorized";

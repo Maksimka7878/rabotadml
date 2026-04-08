@@ -7,7 +7,26 @@
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
       "Bash(git push:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(vercel --version)",
+      "Bash(vercel whoami:*)",
+      "Bash(vercel link:*)",
+      "Bash(vercel env:*)",
+      "Bash(vercel ls:*)",
+      "Bash(curl -s \"https://api.telegram.org/bot8602036673:AAHp67kA7nYM9i8bzcFZlDvwvkfRysizcn0/setWebhook?url=https://robobot-maksimka7878s-projects.vercel.app/api/webhook\")",
+      "Bash(curl -s \"https://api.telegram.org/bot8602036673:AAHp67kA7nYM9i8bzcFZlDvwvkfRysizcn0/getWebhookInfo\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://robobot-maksimka7878s-projects.vercel.app/api/webhook\")",
+      "Bash(curl -s \"https://robobot-maksimka7878s-projects.vercel.app/api/webhook\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://robobot.vercel.app/api/webhook\")",
+      "Bash(vercel inspect:*)",
+      "Bash(vercel project:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://rabotadml.vercel.app/api/webhook\")",
+      "Bash(curl -s \"https://rabotadml.vercel.app/api/webhook\")",
+      "Bash(curl -s \"https://api.telegram.org/bot8602036673:AAHp67kA7nYM9i8bzcFZlDvwvkfRysizcn0/setWebhook?url=https://rabotadml.vercel.app/api/webhook\")",
+      "Bash(vercel logs:*)",
+      "Bash(curl -s -X POST \"https://rabotadml.vercel.app/api/webhook\" -H \"Content-Type: application/json\" -d '{\"message\":{\"chat\":{\"id\":8035455470},\"text\":\"/start\"}}')",
+      "Bash(vercel --prod)",
+      "Bash(curl -s -X POST \"https://rabotadml.vercel.app/api/webhook\" -H \"Content-Type: application/json\" -d '{\"message\":{\"chat\":{\"id\":8035455470},\"text\":\"test\"}}')"
     ]
   }
 }
