@@ -15,6 +15,7 @@ const {
   getActiveShiftsWithNames,
   addPlannedShift,
   getUpcomingShifts,
+  getAllPlannedShifts,
   removePlannedShift,
 } = require("../lib/storage");
 
@@ -367,6 +368,31 @@ async function handleMenuButton(chatId, text, user) {
       if (!checkAdmin(chatId)) break;
       const statsText = await formatStatsWeek();
       await sendMessage(chatId, statsText, adminMenu());
+      return;
+    }
+
+    case "📅 Запланированные смены": {
+      if (!checkAdmin(chatId)) break;
+      const now = Date.now();
+      const shifts = await getAllPlannedShifts(now);
+      if (shifts.length === 0) {
+        await sendMessage(chatId, "📅 <b>Запланированные смены</b>\n\nНет запланированных смен на будущее.", adminMenu());
+        return;
+      }
+      let text = `📅 <b>Запланированные смены</b>\n`;
+      // Группируем по дням
+      const grouped = {};
+      for (const s of shifts) {
+        const d = new Date(s.timestamp);
+        const dayStr = d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit" });
+        const timeStr = d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
+        if (!grouped[dayStr]) grouped[dayStr] = [];
+        grouped[dayStr].push(`  • ${s.userName} в ${timeStr}`);
+      }
+      for (const day in grouped) {
+        text += `\n🗓 <b>${day}</b>\n${grouped[day].join("\n")}\n`;
+      }
+      await sendMessage(chatId, text, adminMenu());
       return;
     }
 
