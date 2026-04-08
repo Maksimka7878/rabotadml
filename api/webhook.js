@@ -107,6 +107,14 @@ async function handleNameInput(chatId, text, user) {
 
 // --- Ввод времени планируемой смены ---
 async function handlePlanTimeInput(chatId, text, user) {
+  if (text === "❌ Отмена") {
+    user.state = "authorized";
+    delete user.plan_day;
+    delete user.plan_month;
+    await setUser(chatId, user);
+    await sendMessage(chatId, "↩️ Отменено.", getMenu(chatId, false));
+    return;
+  }
   const match = text.match(/^(\d{1,2}):(\d{2})$/);
   if (!match) {
     await sendMessage(chatId, "❌ Неверный формат. Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>):");
@@ -149,6 +157,14 @@ async function handlePlanTimeInput(chatId, text, user) {
 
 // --- Ввод даты для планируемой смены (ДД.ММ) ---
 async function handlePlanDateInput(chatId, text, user) {
+  if (text === "❌ Отмена") {
+    user.state = "authorized";
+    delete user.plan_day;
+    delete user.plan_month;
+    await setUser(chatId, user);
+    await sendMessage(chatId, "↩️ Отменено.", getMenu(chatId, false));
+    return;
+  }
   const match = text.match(/^(\d{1,2})\.(\d{1,2})$/);
   if (!match) {
     await sendMessage(chatId, "❌ Неверный формат. Введите дату в формате <b>ДД.ММ</b> (например, <code>15.04</code>):");
@@ -281,7 +297,14 @@ async function handleMenuButton(chatId, text, user) {
       await deleteShift(chatId);
       await sendMessage(chatId,
         `🔴 <b>Смена завершена!</b>\n\n🕐 Начало: <b>${shift.start_time}</b>\n🕐 Конец: <b>${endTime}</b> (МСК)\n⏱ Длительность: <b>${formatDuration(duration)}</b>\n\n📊 <b>Статистика смены:</b>\n⭐ Квал лидов: <b>${qualLeads}</b>\n📨 Партий: <b>${leadRequests}</b>\n\nСпасибо за работу! 👏\n\n🕐 Во сколько планируете выйти <b>завтра</b>? Введите время в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>)`,
-        { reply_markup: { inline_keyboard: [[{ text: "📅 Сменить день выхода", callback_data: "change_plan_day" }]] } }
+        { 
+          reply_markup: { 
+            inline_keyboard: [
+              [{ text: "📅 Сменить день выхода", callback_data: "change_plan_day" }],
+              [{ text: "❌ Отмена", callback_data: "cancel_plan" }]
+            ]
+          } 
+        }
       );
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
@@ -292,8 +315,13 @@ async function handleMenuButton(chatId, text, user) {
     case "📅 Запланировать смену": {
       user.state = "awaiting_plan_time";
       await setUser(chatId, user);
-      await sendMessage(chatId, "🕐 Введите время выхода на завтрашнюю смену в формате <b>ЧЧ:ММ</b>\n\nНапример: <code>09:00</code>", {
-        reply_markup: { keyboard: [[{ text: "❌ Отмена" }]], resize_keyboard: true }
+      await sendMessage(chatId, "🕐 Введите время выхода на <b>завтрашнюю</b> смену в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>):", {
+        reply_markup: { 
+          inline_keyboard: [
+            [{ text: "📅 Сменить день выхода", callback_data: "change_plan_day" }],
+            [{ text: "❌ Отмена", callback_data: "cancel_plan" }]
+          ]
+        }
       });
       return;
     }
@@ -530,8 +558,25 @@ module.exports = async function handler(req, res) {
           await setUser(cbChatId, user);
         }
         await editMessageReplyMarkup(cbChatId, cb.message.message_id);
-        await sendMessage(cbChatId, "📅 Введите дату выхода в формате <b>ДД.ММ</b>\n\nНапример: <code>15.04</code>");
+        await sendMessage(cbChatId, "📅 Введите дату выхода в формате <b>ДД.ММ</b>\n\nНапример: <code>15.04</code>", {
+          reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "cancel_plan" }]] }
+        });
         await answerCallback(cb.id, "Введите дату");
+        return res.status(200).json({ ok: true });
+      }
+
+      // Отмена планирования
+      if (data === "cancel_plan") {
+        const user = await getUser(cbChatId);
+        if (user) {
+          user.state = "authorized";
+          delete user.plan_day;
+          delete user.plan_month;
+          await setUser(cbChatId, user);
+        }
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "↩️ Планирование смены отменено.", getMenu(cbChatId, false));
+        await answerCallback(cb.id, "Отменено");
         return res.status(200).json({ ok: true });
       }
     } catch (err) {
