@@ -6,7 +6,7 @@
     "setup-webhook": "node scripts/setup-webhook.js"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
-    "@google/generative-ai": "^0.21.0"
+    "@google/generative-ai": "^0.21.0",
+    "@neondatabase/serverless": "^1.0.2"
   }
 }
