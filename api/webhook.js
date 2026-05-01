@@ -1,4 +1,6 @@
-const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, editMessageText, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
+const { transcribeBuffer, scoreLead, formatTgReply } = require("../lib/transcribe");
+const { getRecordingUrl, getRecordingUrlFromLink } = require("../lib/amo");
 const {
   initTables,
   getUser,
@@ -20,6 +22,92 @@ const {
 } = require("../lib/storage");
 
 const QUAL_LEAD_PRICE = 400;
+const PHONE_RE = /[+7|8][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/;
+
+function extractPhone(text) {
+  const match = PHONE_RE.exec(text || "");
+  return match ? match[0] : null;
+}
+
+async function downloadMp3(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function handleScore(chatId, cmdText, message) {
+  const parts = cmdText.split(/\s+/);
+  let phone = parts.length > 1 ? parts.slice(1).join(" ") : null;
+
+  if (!phone && message.reply_to_message) {
+    phone = extractPhone(message.reply_to_message.text || "");
+  }
+
+  if (!phone) {
+    await sendMessage(chatId,
+      "Укажи телефон:\n• <code>/score +79991234567</code>\n• или ответь на сообщение с номером командой /score"
+    );
+    return;
+  }
+
+  const statusResult = await sendMessage(chatId, "🔄 Ищу запись звонка...");
+  const statusId = statusResult.result?.message_id;
+  const editStatus = t => statusId
+    ? editMessageText(chatId, statusId, t)
+    : sendMessage(chatId, t);
+
+  const mp3Url = await getRecordingUrl(phone);
+  if (!mp3Url) {
+    await editStatus("⚠️ Запись не найдена в AmoCRM.\nНастрой AMO_DOMAIN и AMO_TOKEN в Vercel env");
+    return;
+  }
+
+  await editStatus("⬇️ Скачиваю MP3...");
+  let audioBuffer;
+  try {
+    audioBuffer = await downloadMp3(mp3Url);
+  } catch (e) {
+    await editStatus(`❌ Ошибка скачивания: ${e.message}`);
+    return;
+  }
+
+  await editStatus("🎙 Транскрибирую разговор... (~60 сек)");
+  let transcription, score;
+  try {
+    transcription = await transcribeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
+    score = await scoreLead(transcription, process.env.GEMINI_API_KEY);
+  } catch (e) {
+    await editStatus(`❌ Ошибка анализа: ${e.message}`);
+    return;
+  }
+
+  await editStatus(formatTgReply(transcription, score));
+}
+
+async function analyzeLeadCall(crmLink, managerName) {
+  const mp3Url = await getRecordingUrlFromLink(crmLink);
+  if (!mp3Url) return; // нет записи — тихо выходим
+
+  let audioBuffer;
+  try {
+    audioBuffer = await downloadMp3(mp3Url);
+  } catch (e) {
+    await notifyAdmin(`⚠️ Не удалось скачать запись звонка (${managerName}): ${e.message}`);
+    return;
+  }
+
+  let transcription, score;
+  try {
+    transcription = await transcribeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
+    score = await scoreLead(transcription, process.env.GEMINI_API_KEY);
+  } catch (e) {
+    await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`);
+    return;
+  }
+
+  await notifyAdmin(`🎙 <b>Анализ звонка — ${managerName}</b>\n\n${formatTgReply(transcription, score)}`);
+}
+
 const LEAD_BATCH_PRICE = 600;
 const CRM_PREFIX = "https://flatcherestate.amocrm.ru/";
 
@@ -200,6 +288,7 @@ async function handleQualLinkInput(chatId, text, user) {
   await setUser(chatId, user);
   await sendMessage(chatId, `⭐ Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`, getMenu(chatId, true));
   await notifyAdmin(`⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🔗 <a href="${text}">Ссылка на лида</a>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`);
+  await analyzeLeadCall(text, user.name);
 }
 
 // --- Статистика за сегодня ---
@@ -622,6 +711,12 @@ module.exports = async function handler(req, res) {
   const text = message.text.trim();
 
   try {
+    if (text.startsWith("/score") && checkAdmin(chatId)) {
+      res.status(200).json({ ok: true });
+      await handleScore(chatId, text, message);
+      return;
+    }
+
     if (text === "/start" || text === "/menu") {
       const existingUser = await getUser(chatId);
       if (existingUser && existingUser.name) {
@@ -642,14 +737,19 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // Send 200 early — qual link processing takes ~60s (transcription)
+    if (user.state === "awaiting_qual_link") {
+      res.status(200).json({ ok: true });
+      await handleQualLinkInput(chatId, text, user);
+      return;
+    }
+
     if (user.state === "awaiting_name") {
       await handleNameInput(chatId, text, user);
     } else if (user.state === "awaiting_plan_date") {
       await handlePlanDateInput(chatId, text, user);
     } else if (user.state === "awaiting_plan_time") {
       await handlePlanTimeInput(chatId, text, user);
-    } else if (user.state === "awaiting_qual_link") {
-      await handleQualLinkInput(chatId, text, user);
     } else if (user.state === "awaiting_dm_text" && checkAdmin(chatId)) {
       // Отправка личного сообщения менеджеру от администратора
       const targetId = user.dm_target_id;

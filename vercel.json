@@ -12,5 +12,10 @@
       "path": "/api/cron",
       "schedule": "* * * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/webhook.js": {
+      "maxDuration": 300
+    }
+  }
 }
