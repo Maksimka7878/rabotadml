@@ -1,6 +1,6 @@
 const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, editMessageText, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
-const { transcribeBuffer, scoreLead, formatTgReply } = require("../lib/transcribe");
-const { getRecordingUrl, getRecordingUrlFromLink } = require("../lib/amo");
+const { analyzeBuffer, formatTgReply, formatNotePlain } = require("../lib/transcribe");
+const { getRecordingUrl, getRecordingUrlFromLink, addNoteToLead } = require("../lib/amo");
 const {
   initTables,
   getUser,
@@ -19,6 +19,7 @@ const {
   getUpcomingShifts,
   getAllPlannedShifts,
   removePlannedShift,
+  deleteUser,
 } = require("../lib/storage");
 
 const QUAL_LEAD_PRICE = 400;
@@ -30,7 +31,14 @@ function extractPhone(text) {
 }
 
 async function downloadMp3(url) {
-  const res = await fetch(url);
+  const { HttpsProxyAgent } = require("https-proxy-agent");
+  const headers = {};
+  if (process.env.AMO_TOKEN) headers["Authorization"] = `Bearer ${process.env.AMO_TOKEN}`;
+  const options = { headers };
+  if (process.env.HTTPS_PROXY && url.includes("comagic.ru")) {
+    options.agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
+  }
+  const res = await fetch(url, options);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -74,38 +82,46 @@ async function handleScore(chatId, cmdText, message) {
   await editStatus("🎙 Транскрибирую разговор... (~60 сек)");
   let transcription, score;
   try {
-    transcription = await transcribeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
-    score = await scoreLead(transcription, process.env.GEMINI_API_KEY);
+    ({ transcription, score } = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY));
   } catch (e) {
     await editStatus(`❌ Ошибка анализа: ${e.message}`);
     return;
   }
 
-  await editStatus(formatTgReply(transcription, score));
+  await editStatus(formatTgReply(transcription, score, null));
 }
 
 async function analyzeLeadCall(crmLink, managerName) {
   const mp3Url = await getRecordingUrlFromLink(crmLink);
-  if (!mp3Url) return; // нет записи — тихо выходим
+  console.log("[analyze] mp3Url:", mp3Url, "link:", crmLink);
+  if (!mp3Url) {
+    await notifyAdmin(`⚠️ Запись звонка не найдена для лида: ${crmLink}`);
+    return;
+  }
 
   let audioBuffer;
   try {
+    console.log("[analyze] downloading:", mp3Url);
     audioBuffer = await downloadMp3(mp3Url);
   } catch (e) {
-    await notifyAdmin(`⚠️ Не удалось скачать запись звонка (${managerName}): ${e.message}`);
+    console.error("[analyze] download error:", e.message, e.cause?.message);
+    await notifyAdmin(`⚠️ Не удалось скачать запись (${managerName}): ${mp3Url?.slice(0, 80)} — ${e.message} ${e.cause?.message || ""}`);
     return;
   }
 
   let transcription, score;
   try {
-    transcription = await transcribeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
-    score = await scoreLead(transcription, process.env.GEMINI_API_KEY);
+    ({ transcription, score } = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY));
   } catch (e) {
     await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`);
     return;
   }
 
-  await notifyAdmin(`🎙 <b>Анализ звонка — ${managerName}</b>\n\n${formatTgReply(transcription, score)}`);
+  const tgText = formatTgReply(transcription, score, managerName);
+  await notifyAdmin(`🎙 ${tgText}`);
+
+  const noteText = formatNotePlain(transcription, score, managerName);
+  await addNoteToLead(crmLink, noteText);
 }
 
 const LEAD_BATCH_PRICE = 600;
@@ -500,6 +516,22 @@ async function handleMenuButton(chatId, text, user) {
       return;
     }
 
+    case "🗑 Удалить менеджера": {
+      if (!checkAdmin(chatId)) break;
+      const allUsers = await getAllUsers();
+      const managers = allUsers.filter(u => String(u.chat_id) !== String(chatId) && u.name);
+      if (managers.length === 0) {
+        await sendMessage(chatId, "👥 Нет зарегистрированных менеджеров.", adminMenu());
+        return;
+      }
+      const buttons = managers.map(u => [{ text: `🗑 ${u.name}`, callback_data: `delete_select_${u.chat_id}` }]);
+      buttons.push([{ text: "❌ Отмена", callback_data: "delete_cancel" }]);
+      await sendMessage(chatId, "🗑 <b>Выберите менеджера для удаления:</b>", {
+        reply_markup: { inline_keyboard: buttons }
+      });
+      return;
+    }
+
     case "🛠 Поддержка": {
       await sendMessage(chatId, "🛠 <b>Поддержка</b>\n\nВыберите тип проблемы:", supportMenu());
       return;
@@ -549,7 +581,7 @@ async function checkReminders() {
 }
 
 // --- Vercel handler ---
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(200).json({ ok: true, info: "Bot is running" });
   }
@@ -648,6 +680,26 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
+      // Выбор менеджера для удаления
+      if (data && data.startsWith("delete_select_") && checkAdmin(cbChatId)) {
+        const targetChatId = data.replace("delete_select_", "");
+        const targetUser = await getUser(targetChatId);
+        const targetName = targetUser ? targetUser.name : "Менеджер";
+        await deleteUser(targetChatId);
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, `✅ Менеджер <b>${targetName}</b> удалён.`, adminMenu());
+        await answerCallback(cb.id, `Удалён: ${targetName}`);
+        return res.status(200).json({ ok: true });
+      }
+
+      // Отмена удаления менеджера
+      if (data === "delete_cancel" && checkAdmin(cbChatId)) {
+        await editMessageReplyMarkup(cbChatId, cb.message.message_id);
+        await sendMessage(cbChatId, "↩️ Удаление отменено.", adminMenu());
+        await answerCallback(cb.id, "Отменено");
+        return res.status(200).json({ ok: true });
+      }
+
       // Отмена отправки личного сообщения
       if (data === "dm_cancel" && checkAdmin(cbChatId)) {
         const admin = await getUser(cbChatId);
@@ -737,11 +789,9 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Send 200 early — qual link processing takes ~60s (transcription)
     if (user.state === "awaiting_qual_link") {
-      res.status(200).json({ ok: true });
       await handleQualLinkInput(chatId, text, user);
-      return;
+      return res.status(200).json({ ok: true });
     }
 
     if (user.state === "awaiting_name") {
@@ -780,4 +830,7 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(200).json({ ok: true });
-};
+}
+
+module.exports = handler;
+module.exports.config = { maxDuration: 60 };
