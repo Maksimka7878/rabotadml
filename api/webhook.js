@@ -1,4 +1,4 @@
-const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, editMessageText, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
+const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, editMessageText, mainMenu, onShiftMenu, onBreakMenu, supportMenu, adminMenu } = require("../lib/telegram");
 const { analyzeBuffer, formatTgReply, formatNotePlain } = require("../lib/transcribe");
 const { getRecordingUrl, getRecordingUrlFromLink, addNoteToLead, getLeadContactInfo } = require("../lib/amo");
 const {
@@ -20,6 +20,8 @@ const {
   getAllPlannedShifts,
   removePlannedShift,
   deleteUser,
+  startBreak,
+  endBreak,
 } = require("../lib/storage");
 
 const QUAL_LEAD_PRICE = 400;
@@ -196,9 +198,10 @@ function checkAdmin(chatId) {
   return adminId && String(chatId) === String(adminId).trim();
 }
 
-function getMenu(chatId, onShift) {
+function getMenu(chatId, onShift, onBreak) {
   if (checkAdmin(chatId)) return adminMenu();
-  return onShift ? onShiftMenu() : mainMenu();
+  if (onShift) return onBreak ? onBreakMenu() : onShiftMenu();
+  return mainMenu();
 }
 
 // --- Обработка /start ---
@@ -405,7 +408,10 @@ async function handleMenuButton(chatId, text, user) {
       const qualLeads = shift.qual_leads || 0;
       const leadRequests = shift.lead_requests || 0;
       const startTs = Number(shift.start_ts) || 0;
-      const duration = endTs - startTs;
+      const totalBreakMs = shift.on_break
+        ? (Number(shift.total_break_ms) || 0) + (endTs - Number(shift.break_start_ts || 0))
+        : (Number(shift.total_break_ms) || 0);
+      const duration = Math.max(0, endTs - startTs - totalBreakMs);
       await logShift(chatId, user.name, shift.start_time, endTime, startTs, endTs, qualLeads, leadRequests);
       await deleteShift(chatId);
       await sendMessage(chatId,
@@ -436,6 +442,35 @@ async function handleMenuButton(chatId, text, user) {
           ]
         }
       });
+      return;
+    }
+
+    case "☕ Перерыв": {
+      const shift = await getShift(chatId);
+      if (!shift || !shift.active) {
+        await sendMessage(chatId, "⚠️ Вы сейчас не на смене.", getMenu(chatId, false));
+        return;
+      }
+      if (shift.on_break) {
+        await sendMessage(chatId, "⚠️ Вы уже на перерыве.", getMenu(chatId, true, true));
+        return;
+      }
+      await startBreak(chatId);
+      await sendMessage(chatId, `☕ <b>Перерыв начат!</b>\n\n🕐 ${mskNow()} (МСК)\n\nВремя перерыва не учитывается в длительности смены.`, getMenu(chatId, true, true));
+      await notifyAdmin(`☕ <b>${user.name}</b> взял перерыв\n🕐 ${mskNow()} (МСК)`);
+      return;
+    }
+
+    case "▶️ Вернуться с перерыва": {
+      const shift = await getShift(chatId);
+      if (!shift || !shift.active) {
+        await sendMessage(chatId, "⚠️ Вы сейчас не на смене.", getMenu(chatId, false));
+        return;
+      }
+      const breakMs = await endBreak(chatId);
+      const breakDur = formatDuration(breakMs);
+      await sendMessage(chatId, `▶️ <b>Вернулись с перерыва!</b>\n\n⏱ Перерыв: <b>${breakDur}</b>\n\nПродолжайте работу! 🔥`, getMenu(chatId, true, false));
+      await notifyAdmin(`▶️ <b>${user.name}</b> вернулся с перерыва (${breakDur})\n🕐 ${mskNow()} (МСК)`);
       return;
     }
 
