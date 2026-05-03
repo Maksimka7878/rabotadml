@@ -93,11 +93,11 @@ async function handleScore(chatId, cmdText, message) {
   await editStatus(formatTgReply(transcription, score, null));
 }
 
-async function analyzeLeadCall(crmLink, managerName) {
+async function analyzeLeadCall(crmLink, managerName, replyToMsgId) {
   const mp3Url = await getRecordingUrlFromLink(crmLink);
   console.log("[analyze] mp3Url:", mp3Url, "link:", crmLink);
   if (!mp3Url) {
-    await notifyAdmin(`⚠️ Запись звонка не найдена для лида: ${crmLink}`);
+    await notifyAdmin(`⚠️ Запись звонка не найдена для лида: ${crmLink}`, replyToMsgId);
     return;
   }
 
@@ -107,7 +107,7 @@ async function analyzeLeadCall(crmLink, managerName) {
     audioBuffer = await downloadMp3(mp3Url);
   } catch (e) {
     console.error("[analyze] download error:", e.message, e.cause?.message);
-    await notifyAdmin(`⚠️ Не удалось скачать запись (${managerName}): ${mp3Url?.slice(0, 80)} — ${e.message} ${e.cause?.message || ""}`);
+    await notifyAdmin(`⚠️ Не удалось скачать запись (${managerName}): ${mp3Url?.slice(0, 80)} — ${e.message} ${e.cause?.message || ""}`, replyToMsgId);
     return;
   }
 
@@ -115,7 +115,7 @@ async function analyzeLeadCall(crmLink, managerName) {
   try {
     ({ transcription, score } = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY));
   } catch (e) {
-    await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`);
+    await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`, replyToMsgId);
     return;
   }
 
@@ -124,7 +124,7 @@ async function analyzeLeadCall(crmLink, managerName) {
   if (contactInfo?.phone) transcription.client_phone = contactInfo.phone;
 
   const tgText = formatTgReply(transcription, score, managerName);
-  await notifyAdmin(`🎙 ${tgText}`);
+  await notifyAdmin(`🎙 ${tgText}`, replyToMsgId);
 
   const noteText = formatNotePlain(transcription, score, managerName);
   await addNoteToLead(crmLink, noteText);
@@ -309,8 +309,9 @@ async function handleQualLinkInput(chatId, text, user) {
   user.state = "authorized";
   await setUser(chatId, user);
   await sendMessage(chatId, `⭐ Квал лид засчитан! (всего за смену: <b>${newCount}</b>)`, getMenu(chatId, true));
-  await notifyAdmin(`⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🔗 <a href="${text}">Ссылка на лида</a>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`);
-  await analyzeLeadCall(text, user.name);
+  const qualMsg = await notifyAdmin(`⭐⭐⭐ <b>КВАЛ ЛИД</b>\n\nОт сотрудника: <b>${user.name}</b>\n🔗 <a href="${text}">Ссылка на лида</a>\n🕐 ${mskNow()} (МСК)\n📊 Всего за смену: ${newCount}`);
+  const qualMsgId = qualMsg?.result?.message_id;
+  await analyzeLeadCall(text, user.name, qualMsgId);
 }
 
 // --- Статистика за сегодня ---
