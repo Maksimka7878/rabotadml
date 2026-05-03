@@ -31,15 +31,13 @@ function extractPhone(text) {
 }
 
 async function downloadMp3(url) {
-  const headers = {};
-  if (process.env.AMO_TOKEN) headers["Authorization"] = `Bearer ${process.env.AMO_TOKEN}`;
-
-  if (process.env.HTTPS_PROXY && url.includes("comagic.ru")) {
+  if (url.includes("comagic.ru")) {
     const https = require("https");
     const { HttpsProxyAgent } = require("https-proxy-agent");
-    const agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
+    const options = {};
+    if (process.env.HTTPS_PROXY) options.agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
     return new Promise((resolve, reject) => {
-      const req = https.get(url, { agent, headers }, (res) => {
+      const req = https.get(url, options, (res) => {
         if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
         const chunks = [];
         res.on("data", c => chunks.push(c));
@@ -51,7 +49,7 @@ async function downloadMp3(url) {
     });
   }
 
-  const res = await fetch(url, { headers });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
