@@ -31,22 +31,13 @@ function extractPhone(text) {
 }
 
 async function downloadMp3(url) {
-  if (url.includes("comagic.ru")) {
-    const https = require("https");
+  if (url.includes("comagic.ru") && process.env.HTTPS_PROXY) {
+    const nodeFetch = require("node-fetch");
     const { HttpsProxyAgent } = require("https-proxy-agent");
-    const options = {};
-    if (process.env.HTTPS_PROXY) options.agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
-    return new Promise((resolve, reject) => {
-      const req = https.get(url, options, (res) => {
-        if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
-        const chunks = [];
-        res.on("data", c => chunks.push(c));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      });
-      req.on("error", reject);
-      req.setTimeout(30000, () => { req.destroy(); reject(new Error("Download timeout")); });
-    });
+    const agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
+    const res = await nodeFetch(url, { agent });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
   }
 
   const res = await fetch(url);
