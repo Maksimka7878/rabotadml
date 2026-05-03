@@ -82,15 +82,15 @@ async function handleScore(chatId, cmdText, message) {
   }
 
   await editStatus("🎙 Транскрибирую разговор... (~60 сек)");
-  let result;
+  let transcription, score;
   try {
-    result = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
+    ({ transcription, score } = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY));
   } catch (e) {
     await editStatus(`❌ Ошибка анализа: ${e.message}`);
     return;
   }
 
-  await editStatus(formatTgReply(result, null, null));
+  await editStatus(formatTgReply(transcription, score, null));
 }
 
 async function analyzeLeadCall(crmLink, managerName) {
@@ -111,18 +111,18 @@ async function analyzeLeadCall(crmLink, managerName) {
     return;
   }
 
-  let result;
+  let transcription, score;
   try {
-    result = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY);
+    ({ transcription, score } = await analyzeBuffer(audioBuffer, process.env.GEMINI_API_KEY));
   } catch (e) {
     await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`);
     return;
   }
 
-  const tgText = formatTgReply(result, null, managerName);
+  const tgText = formatTgReply(transcription, score, managerName);
   await notifyAdmin(`🎙 ${tgText}`);
 
-  const noteText = formatNotePlain(result, null, managerName);
+  const noteText = formatNotePlain(transcription, score, managerName);
   await addNoteToLead(crmLink, noteText);
 }
 
