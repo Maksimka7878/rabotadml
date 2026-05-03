@@ -167,6 +167,10 @@ function parseSpecificDateMsk(day, month, hours, minutes) {
   return date.getTime();
 }
 
+function monthStartMs() {
+  return Date.now() - 30 * 24 * 60 * 60 * 1000;
+}
+
 function todayStartMs() {
   const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
   const nowMsk = new Date(Date.now() + MSK_OFFSET_MS);
@@ -376,6 +380,41 @@ async function formatStatsWeek() {
   return text;
 }
 
+// --- Статистика за месяц ---
+async function formatStatsMonth() {
+  const fromMs = monthStartMs();
+  const stats = await getStats(fromMs);
+  const active = await getActiveShiftsWithNames();
+  if (stats.length === 0 && active.length === 0) return `📊 <b>Статистика за месяц</b>\n\nНет данных.`;
+  let text = `📊 <b>Статистика за месяц</b>\n`;
+  if (active.length > 0) {
+    text += `\n🟢 <b>Сейчас на смене:</b>\n`;
+    for (const s of active) text += `  • ${s.name} (с ${s.start_time})\n`;
+  }
+  if (stats.length > 0) {
+    text += `\n📋 <b>Итоги по менеджерам:</b>\n`;
+    let grandTotalQual = 0, grandTotalBatches = 0, grandTotalMoney = 0;
+    for (const s of stats) {
+      const qual = Number(s.total_qual_leads);
+      const batches = Number(s.total_lead_requests);
+      const workMs = Number(s.total_work_ms);
+      const money = qual * QUAL_LEAD_PRICE + batches * LEAD_BATCH_PRICE;
+      text += `\n👤 <b>${s.user_name}</b>\n`;
+      text += `  📅 Смен: ${s.total_shifts} (${formatDuration(workMs)})\n`;
+      text += `  ⭐ Квал лидов: ${qual} × ${QUAL_LEAD_PRICE}₽ = ${qual * QUAL_LEAD_PRICE}₽\n`;
+      text += `  📨 Партий: ${batches} × ${LEAD_BATCH_PRICE}₽ = ${batches * LEAD_BATCH_PRICE}₽\n`;
+      text += `  💰 <b>Итого: ${money}₽</b>\n`;
+      grandTotalQual += qual;
+      grandTotalBatches += batches;
+      grandTotalMoney += money;
+    }
+    text += `\n━━━━━━━━━━━━━━━\n`;
+    text += `💰 <b>ОБЩИЙ ИТОГ: ${grandTotalMoney}₽</b>\n`;
+    text += `⭐ Квал лидов: ${grandTotalQual} | 📨 Партий: ${grandTotalBatches}`;
+  }
+  return text;
+}
+
 // --- Кнопки меню ---
 async function handleMenuButton(chatId, text, user) {
   switch (text) {
@@ -514,6 +553,13 @@ async function handleMenuButton(chatId, text, user) {
     case "📊 Статистика за неделю": {
       if (!checkAdmin(chatId)) break;
       const statsText = await formatStatsWeek();
+      await sendMessage(chatId, statsText, adminMenu());
+      return;
+    }
+
+    case "📊 Статистика за месяц": {
+      if (!checkAdmin(chatId)) break;
+      const statsText = await formatStatsMonth();
       await sendMessage(chatId, statsText, adminMenu());
       return;
     }
