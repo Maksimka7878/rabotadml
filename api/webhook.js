@@ -1,6 +1,6 @@
 const { sendMessage, notifyAdmin, answerCallback, editMessageReplyMarkup, editMessageText, mainMenu, onShiftMenu, supportMenu, adminMenu } = require("../lib/telegram");
 const { analyzeBuffer, formatTgReply, formatNotePlain } = require("../lib/transcribe");
-const { getRecordingUrl, getRecordingUrlFromLink, addNoteToLead } = require("../lib/amo");
+const { getRecordingUrl, getRecordingUrlFromLink, addNoteToLead, getLeadContactInfo } = require("../lib/amo");
 const {
   initTables,
   getUser,
@@ -118,6 +118,10 @@ async function analyzeLeadCall(crmLink, managerName) {
     await notifyAdmin(`⚠️ Ошибка анализа звонка (${managerName}): ${e.message}`);
     return;
   }
+
+  const contactInfo = await getLeadContactInfo(crmLink).catch(() => null);
+  if (contactInfo?.name) transcription.client_full_name = contactInfo.name;
+  if (contactInfo?.phone) transcription.client_phone = contactInfo.phone;
 
   const tgText = formatTgReply(transcription, score, managerName);
   await notifyAdmin(`🎙 ${tgText}`);
