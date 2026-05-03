@@ -33,17 +33,25 @@ function extractPhone(text) {
 async function downloadMp3(url) {
   const headers = {};
   if (process.env.AMO_TOKEN) headers["Authorization"] = `Bearer ${process.env.AMO_TOKEN}`;
-  const options = { headers };
 
   if (process.env.HTTPS_PROXY && url.includes("comagic.ru")) {
-    const { ProxyAgent, fetch: undiciFetch } = require("undici");
-    const dispatcher = new ProxyAgent(process.env.HTTPS_PROXY);
-    const res = await undiciFetch(url, { ...options, dispatcher });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return Buffer.from(await res.arrayBuffer());
+    const https = require("https");
+    const { HttpsProxyAgent } = require("https-proxy-agent");
+    const agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
+    return new Promise((resolve, reject) => {
+      const req = https.get(url, { agent, headers }, (res) => {
+        if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+        const chunks = [];
+        res.on("data", c => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.setTimeout(30000, () => { req.destroy(); reject(new Error("Download timeout")); });
+    });
   }
 
-  const res = await fetch(url, options);
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
